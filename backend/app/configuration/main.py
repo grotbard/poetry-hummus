@@ -19,9 +19,10 @@ the canonical names when overriding for a script or a test run.
 import os
 import secrets as _secrets
 from enum import StrEnum
+from pathlib import Path
 from functools import lru_cache
 
-from pydantic import AliasChoices, Field, SecretStr, computed_field
+from pydantic import AliasChoices, Field, SecretStr, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -63,6 +64,20 @@ class DatabaseSettings(BaseSettings):
     pool_pre_ping: bool = True
     echo_sql: bool = False
 
+    @field_validator("url", mode="after")
+    @classmethod
+    def _ensure_async_driver(cls, value: str) -> str:
+        """Accept the plain URLs managed hosts hand out.
+
+        Render, Heroku and friends expose `postgresql://` (or `postgres://`),
+        but SQLAlchemy's async engine needs an async driver in the scheme.
+        Rewriting here means the platform value can be used verbatim.
+        """
+        for prefix in ("postgresql://", "postgres://"):
+            if value.startswith(prefix):
+                return "postgresql+asyncpg://" + value[len(prefix) :]
+        return value
+
     @computed_field
     @property
     def is_sqlite(self) -> bool:
@@ -100,6 +115,12 @@ class SecuritySettings(BaseSettings):
     )
     session_cookie_name: str = "poet_session"
     session_ttl_hours: int = Field(default=24 * 14, ge=1)
+    # Force the Secure cookie flag independently of app_env, for a proxy
+    # that terminates TLS (Render, Fly, Heroku) while the app sees plain HTTP.
+    cookie_secure: bool | None = Field(
+        default=None,
+        description="None follows app_env; set true behind an HTTPS proxy.",
+    )
 
 
 class GoogleOAuthSettings(BaseSettings):
@@ -194,6 +215,17 @@ class Settings(BaseSettings):
             "public_api_url", "POETRY_PUBLIC_API_URL", "PUBLIC_API_URL"
         ),
     )
+    # When set, the API also serves the built SPA from this directory, so a
+    # single-origin deployment needs no CORS and no cross-site cookie.
+    static_dir: Path | None = Field(
+        default=None,
+        validation_alias=AliasChoices("static_dir", "POETRY_STATIC_DIR"),
+    )
+    # Directory for uploaded menu photos; a mounted disk in production.
+    media_dir: Path = Field(
+        default=Path(__file__).resolve().parents[2] / "media",
+        validation_alias=AliasChoices("media_dir", "POETRY_MEDIA_DIR"),
+    )
 
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
@@ -216,6 +248,18 @@ class Settings(BaseSettings):
         if not _env_present("POETRY_DB__URL", "DATABASE_URL"):
             missing.append("DATABASE_URL (or POETRY_DB__URL)")
         return missing
+
+    @property
+    def cookie_secure(self) -> bool:
+        """Whether to set the Secure flag on the session cookie."""
+        if self.security.cookie_secure is not None:
+            return self.security.cookie_secure
+        return self.is_production
+
+    @property
+    def serve_frontend(self) -> bool:
+        """True when a built SPA sits next to the API and should be served."""
+        return self.static_dir is not None and self.static_dir.is_dir()
 
     @property
     def google_redirect_uri(self) -> str:

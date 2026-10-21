@@ -60,7 +60,7 @@ async def google_login() -> RedirectResponse:
         OAUTH_STATE_COOKIE,
         state,
         httponly=True,
-        secure=settings.is_production,
+        secure=settings.cookie_secure,
         samesite="lax",
         max_age=600,
         path="/",

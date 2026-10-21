@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .configuration import settings
@@ -48,10 +49,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Uploaded menu photos are served straight off disk.
-MEDIA_DIR = Path(__file__).resolve().parents[1] / "media"
-MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
+# Uploaded menu photos are served straight off disk, from a mounted volume
+# in production (POETRY_MEDIA_DIR) so they survive a redeploy.
+settings.media_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/media", StaticFiles(directory=settings.media_dir), name="media")
 
 app.include_router(auth.router)
 app.include_router(members.router)
@@ -71,3 +72,32 @@ async def ready(response: Response) -> dict:
     if not healthy:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return {"status": "ok" if healthy else "degraded", "database": healthy}
+
+
+# ---------------------------------------------------------------------------
+# Optional single-origin mode.
+#
+# With POETRY_STATIC_DIR pointing at a built SPA, this process serves the
+# frontend too. Same origin means no CORS and no cross-site cookie, which
+# matters on hosts like *.onrender.com: those subdomains are separate sites,
+# so a SameSite=Lax session cookie set by the API would never be sent by the
+# web app. Mounted last so it cannot shadow /api or /media.
+# ---------------------------------------------------------------------------
+if settings.serve_frontend:
+    static_dir = settings.static_dir
+    assert static_dir is not None  # guarded by serve_frontend
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa(full_path: str) -> FileResponse:
+        """Serve built assets, falling back to index.html for SPA routes."""
+        candidate = (static_dir / full_path).resolve()
+        # Only serve files genuinely inside the build directory.
+        if (
+            full_path
+            and candidate.is_file()
+            and candidate.is_relative_to(static_dir.resolve())
+        ):
+            return FileResponse(candidate)
+        return FileResponse(static_dir / "index.html")
+
+    log.info("Serving frontend from %s", static_dir)

@@ -60,6 +60,14 @@ handler with `set_db_handler()`.
 
 ## Deploying
 
+**Render** (simplest): the repo ships `render.yaml` and a root `Dockerfile`
+that builds the SPA into the API image, so one service serves both from a
+single origin — necessary because separate `*.onrender.com` subdomains are
+different sites and would drop the `SameSite=Lax` session cookie. Walkthrough:
+[docs/DEPLOY-RENDER.md](docs/DEPLOY-RENDER.md).
+
+**Kubernetes**:
+
 ```bash
 helm upgrade --install club deploy/helm/poetry-hummus \
   -f deploy/helm/poetry-hummus/values-prod.yaml \

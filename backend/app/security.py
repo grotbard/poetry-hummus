@@ -44,7 +44,7 @@ def set_session_cookie(response, token: str) -> None:
         key=settings.security.session_cookie_name,
         value=token,
         httponly=True,
-        secure=settings.is_production,
+        secure=settings.cookie_secure,
         samesite="lax",
         max_age=settings.security.session_ttl_hours * 3600,
         path="/",

@@ -253,3 +253,46 @@ def test_every_credential_is_a_masked_secret(monkeypatch, group, env_name, field
     assert "value-that-must-not-print" not in repr(holder)
     assert "value-that-must-not-print" not in str(loaded)
     assert getattr(holder, field).get_secret_value() == "value-that-must-not-print"
+
+
+# --- managed-platform compatibility ----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "given,expected",
+    [
+        ("postgresql://u:p@h:5432/db", "postgresql+asyncpg://u:p@h:5432/db"),
+        ("postgres://u:p@h:5432/db", "postgresql+asyncpg://u:p@h:5432/db"),
+        ("postgresql+asyncpg://u:p@h/db", "postgresql+asyncpg://u:p@h/db"),
+        ("sqlite+aiosqlite:///./x.db", "sqlite+aiosqlite:///./x.db"),
+    ],
+)
+def test_platform_database_urls_get_an_async_driver(given, expected):
+    """Render and Heroku hand out postgresql://, which asyncio cannot use."""
+    assert DatabaseSettings(url=given, _env_file=None).url == expected
+
+
+def test_cookie_secure_follows_app_env_by_default(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "development")
+    assert Settings(_env_file=None).cookie_secure is False
+
+
+def test_cookie_secure_can_be_forced_behind_a_tls_proxy(monkeypatch):
+    """Render terminates TLS, so the app sees HTTP but must still set Secure."""
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("POETRY_SECURITY__COOKIE_SECURE", "true")
+    assert Settings(_env_file=None).cookie_secure is True
+
+
+def test_serve_frontend_is_off_without_a_static_dir():
+    assert Settings(_env_file=None).serve_frontend is False
+
+
+def test_serve_frontend_requires_the_directory_to_exist(tmp_path, monkeypatch):
+    monkeypatch.setenv("POETRY_STATIC_DIR", str(tmp_path / "missing"))
+    assert Settings(_env_file=None).serve_frontend is False
+
+    built = tmp_path / "dist"
+    built.mkdir()
+    monkeypatch.setenv("POETRY_STATIC_DIR", str(built))
+    assert Settings(_env_file=None).serve_frontend is True

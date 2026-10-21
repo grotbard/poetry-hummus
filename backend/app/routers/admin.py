@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from sqlalchemy import Select, case, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..configuration import settings
 from ..db import get_db
 from ..menu_query import menu_ordered
 from ..models import (
@@ -378,7 +379,7 @@ async def update_menu_item(
 
 
 # Uploaded item photos live here and are served at /media.
-MEDIA_ROOT = Path(__file__).resolve().parents[2] / "media" / "menu"
+MEDIA_ROOT = settings.media_dir / "menu"
 MAX_IMAGE_BYTES = 4 * 1024 * 1024
 
 

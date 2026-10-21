@@ -1,0 +1,60 @@
+# Render blueprint — https://render.com/docs/blueprint-spec
+#
+#   1. Push this repo to GitHub.
+#   2. Render dashboard → New → Blueprint → pick the repo.
+#   3. Fill in the two Google OAuth values when prompted (sync: false below).
+#   4. After the first deploy, set the Google redirect URI to
+#        https://<your-service>.onrender.com/api/auth/google/callback
+#      and update POETRY_PUBLIC_API_URL / POETRY_FRONTEND_URL to that host.
+#
+# One web service serves both the API and the SPA, so the session cookie is
+# same-origin and no CORS is involved.
+
+databases:
+  - name: poetry-hummus-db
+    databaseName: poetry_hummus
+    user: poet
+    plan: free          # upgrade to starter+ for backups and no 90-day expiry
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: poetry-hummus
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter       # free tier sleeps and has no persistent disk
+    region: frankfurt   # closest to Tel Aviv
+    healthCheckPath: /api/health
+    # Applies migrations before the new instance takes traffic.
+    preDeployCommand: alembic upgrade head
+    disk:
+      name: media
+      mountPath: /app/media
+      sizeGB: 1
+    envVars:
+      - key: POETRY_APP_ENV
+        value: production
+      - key: POETRY_DB__URL
+        fromDatabase:
+          name: poetry-hummus-db
+          property: connectionString
+      # Render hands out postgresql://; the settings module rewrites the
+      # scheme to postgresql+asyncpg:// so this value works as-is.
+      - key: POETRY_SECURITY__SECRET_KEY
+        generateValue: true
+      # Render terminates TLS, so the app sees plain HTTP and would otherwise
+      # omit the Secure flag.
+      - key: POETRY_SECURITY__COOKIE_SECURE
+        value: "true"
+      - key: POETRY_PUBLIC_API_URL
+        sync: false     # set to https://<service>.onrender.com after first deploy
+      - key: POETRY_FRONTEND_URL
+        sync: false     # same host as above
+      - key: POETRY_GOOGLE__CLIENT_ID
+        sync: false
+      - key: POETRY_GOOGLE__CLIENT_SECRET
+        sync: false
+      - key: POETRY_ADMIN__EMAIL
+        sync: false
+      - key: POETRY_ADMIN__PASSWORD
+        sync: false
