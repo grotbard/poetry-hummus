@@ -8,16 +8,32 @@ the identical flow against the production engine.
 import asyncio
 import os
 import pathlib
+import secrets
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./smoke.db")
-os.environ.setdefault("APP_ENV", "development")
-os.environ.setdefault("SECRET_KEY", "smoke-test-secret")
-os.environ.setdefault("BOOTSTRAP_ADMIN_EMAIL", "admin@hummushameshorer.com")
-os.environ.setdefault("BOOTSTRAP_ADMIN_PASSWORD", "smoke-admin-pw")
+# Throwaway credentials for this run only, generated rather than hardcoded so
+# nothing in the repo doubles as a usable password. Override any of them from
+# the environment to point the suite elsewhere.
+# Use the canonical POETRY_* names: when both a canonical and a legacy alias
+# are present, the canonical one wins whatever its source, so setting only the
+# legacy name here would be silently overridden by a developer's .env.
+os.environ.setdefault("POETRY_DB__URL", "sqlite+aiosqlite:///./smoke.db")
+os.environ.setdefault("POETRY_APP_ENV", "development")
+# Throwaway credentials for this run, generated rather than hardcoded so
+# nothing in the repo doubles as a usable password.
+os.environ["POETRY_SECURITY__SECRET_KEY"] = secrets.token_urlsafe(32)
+os.environ["POETRY_ADMIN__EMAIL"] = "smoke-admin@example.com"
+os.environ["POETRY_ADMIN__PASSWORD"] = secrets.token_urlsafe(24)
+# A developer .env must not steer the suite at a real database or account.
+for _legacy in ("DATABASE_URL", "SECRET_KEY", "APP_ENV",
+                "BOOTSTRAP_ADMIN_EMAIL", "BOOTSTRAP_ADMIN_PASSWORD"):
+    os.environ.pop(_legacy, None)
+
+ADMIN_EMAIL = os.environ["POETRY_ADMIN__EMAIL"]
+ADMIN_PASSWORD = os.environ["POETRY_ADMIN__PASSWORD"]
 
 import httpx  # noqa: E402
 
@@ -101,13 +117,13 @@ async def main() -> int:
 
         r = await client.post(
             "/api/auth/admin/login",
-            json={"email": "admin@hummushameshorer.com", "password": "wrong"},
+            json={"email": ADMIN_EMAIL, "password": "definitely-not-the-password"},
         )
         check("bad admin password rejected", r.status_code == 401)
 
         r = await client.post(
             "/api/auth/admin/login",
-            json={"email": "admin@hummushameshorer.com", "password": "smoke-admin-pw"},
+            json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
         )
         check("bootstrap admin can log in", r.status_code == 200, r.text[:120])
         admin_cookie = {settings.security.session_cookie_name: r.cookies.get(settings.security.session_cookie_name, "")}

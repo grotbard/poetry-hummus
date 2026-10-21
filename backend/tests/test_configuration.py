@@ -6,6 +6,7 @@ import pytest
 
 from app.configuration import (
     AppEnv,
+    ConfigurationError,
     DatabaseSettings,
     GoogleOAuthSettings,
     SecuritySettings,
@@ -151,3 +152,104 @@ async def test_healthcheck_fails_against_an_unreachable_database():
     )
     assert await handler.healthcheck() is False
     await handler.dispose()
+
+
+# --- secret handling -------------------------------------------------------
+
+
+def test_secret_key_is_generated_when_unset_not_a_shared_constant():
+    """A constant fallback in the repo would sign real sessions if leaked."""
+    first = SecuritySettings(_env_file=None).secret_key.get_secret_value()
+    second = SecuritySettings(_env_file=None).secret_key.get_secret_value()
+    assert first != second
+    assert len(first) >= 32
+
+
+def test_production_refuses_to_start_without_a_secret_key(monkeypatch):
+    from app.configuration.main import get_settings
+
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@h/db")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ConfigurationError, match="SECRET_KEY"):
+            get_settings()
+    finally:
+        get_settings.cache_clear()
+
+
+def test_production_refuses_to_start_without_a_database_url(monkeypatch):
+    from app.configuration.main import get_settings
+
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("SECRET_KEY", "a-real-production-key")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ConfigurationError, match="DATABASE_URL"):
+            get_settings()
+    finally:
+        get_settings.cache_clear()
+
+
+def test_production_starts_when_both_secrets_are_present(monkeypatch):
+    from app.configuration.main import get_settings
+
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("SECRET_KEY", "a-real-production-key")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@h/db")
+    get_settings.cache_clear()
+    try:
+        loaded = get_settings()
+        assert loaded.is_production is True
+    finally:
+        get_settings.cache_clear()
+
+
+def test_development_starts_with_nothing_configured(monkeypatch):
+    """A fresh clone must run without a .env file."""
+    from app.configuration.main import get_settings
+
+    monkeypatch.setenv("APP_ENV", "development")
+    get_settings.cache_clear()
+    try:
+        loaded = get_settings()
+        assert loaded.missing_production_config() == []
+        assert loaded.database.url.startswith("postgresql+asyncpg://")
+    finally:
+        get_settings.cache_clear()
+
+
+def test_the_production_error_does_not_echo_secret_values(monkeypatch):
+    """Pydantic validators dump their input, which would leak credentials."""
+    from app.configuration.main import get_settings
+
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("BOOTSTRAP_ADMIN_PASSWORD", "sup3r-s3cret-admin-pw")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "GOCSPX-do-not-print-me")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ConfigurationError) as exc:
+            get_settings()
+        message = str(exc.value)
+        assert "sup3r-s3cret-admin-pw" not in message
+        assert "GOCSPX-do-not-print-me" not in message
+    finally:
+        get_settings.cache_clear()
+
+
+@pytest.mark.parametrize(
+    "group,env_name,field",
+    [
+        ("security", "POETRY_SECURITY__SECRET_KEY", "secret_key"),
+        ("google", "POETRY_GOOGLE__CLIENT_SECRET", "client_secret"),
+        ("admin", "POETRY_ADMIN__PASSWORD", "password"),
+    ],
+)
+def test_every_credential_is_a_masked_secret(monkeypatch, group, env_name, field):
+    """No credential may render in plain text via repr or str."""
+    monkeypatch.setenv(env_name, "value-that-must-not-print")
+    loaded = Settings(_env_file=None)
+    holder = getattr(loaded, group)
+    assert "value-that-must-not-print" not in repr(holder)
+    assert "value-that-must-not-print" not in str(loaded)
+    assert getattr(holder, field).get_secret_value() == "value-that-must-not-print"

@@ -8,6 +8,7 @@ Import the singleton from here:
 
 from .main import (
     AppEnv,
+    ConfigurationError,
     DatabaseSettings,
     GoogleOAuthSettings,
     LoyaltySettings,
@@ -19,6 +20,7 @@ from .main import (
 
 __all__ = [
     "AppEnv",
+    "ConfigurationError",
     "DatabaseSettings",
     "GoogleOAuthSettings",
     "LoyaltySettings",

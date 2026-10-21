@@ -64,6 +64,7 @@ they are never rendered into the manifest.
       key: {{ .Values.secrets.keys.databasePassword }}
 - name: POETRY_DB__URL
   value: "postgresql+asyncpg://{{ $db.user }}:$(DB_PASSWORD)@{{ $db.host }}:{{ $db.port }}/{{ $db.name }}?ssl={{ $db.sslMode }}"
+{{- /* Required: the API refuses to start in production without this. */}}
 - name: POETRY_SECURITY__SECRET_KEY
   valueFrom:
     secretKeyRef:

@@ -1,9 +1,18 @@
 import os
+import secrets
 
-os.environ.setdefault("APP_ENV", "test")
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-os.environ.setdefault("SECRET_KEY", "test-secret-key-not-for-production")
-os.environ.setdefault("BOOTSTRAP_ADMIN_PASSWORD", "")
+# Canonical POETRY_* names: a canonical value outranks its legacy alias
+# whatever the source, so a developer's .env would otherwise win here.
+os.environ["POETRY_APP_ENV"] = "test"
+os.environ["POETRY_DB__URL"] = "sqlite+aiosqlite:///:memory:"
+# Generated per run: a fixed string in the repo is a credential waiting to
+# be reused somewhere real.
+os.environ["POETRY_SECURITY__SECRET_KEY"] = secrets.token_urlsafe(32)
+os.environ["POETRY_ADMIN__EMAIL"] = ""
+os.environ["POETRY_ADMIN__PASSWORD"] = ""
+for _legacy in ("DATABASE_URL", "SECRET_KEY", "APP_ENV",
+                "BOOTSTRAP_ADMIN_EMAIL", "BOOTSTRAP_ADMIN_PASSWORD"):
+    os.environ.pop(_legacy, None)
 
 import pytest
 import pytest_asyncio

@@ -177,3 +177,26 @@ PVC לתמונות המנות, ו-Job מסוג `pre-upgrade` שמריץ `alembic
 - `/api/ready` מחזיר 503 כשבסיס הנתונים אינו זמין, ומשמש כ-readiness probe.
 - אחסון התמונות דורש `ReadWriteMany`. עם storage class מסוג `ReadWriteOnce`
   יש להגביל ל-replica אחת או לעבור ל-S3.
+
+## 14. ניהול סודות
+
+כל מפתח או סיסמה נקראים ממשתני סביבה דרך `app/configuration/main.py` בלבד.
+אין ערכים קשיחים בקוד.
+
+| סוד | משתנה |
+|---|---|
+| חתימת Session | `POETRY_SECURITY__SECRET_KEY` |
+| Google OAuth | `POETRY_GOOGLE__CLIENT_ID`, `POETRY_GOOGLE__CLIENT_SECRET` |
+| סיסמת מנהל ראשוני | `POETRY_ADMIN__PASSWORD` |
+| סיסמת בסיס נתונים | חלק מ-`POETRY_DB__URL` |
+
+- כל הסודות מוגדרים כ-`SecretStr` ולכן אינם נחשפים בלוגים, ב-`repr` או
+  ב-traceback.
+- בפיתוח, אם `POETRY_SECURITY__SECRET_KEY` חסר נוצר מפתח אקראי לכל ריצה —
+  כך שאין קבוע ידוע בקוד, אבל ה-sessions לא שורדים הפעלה מחדש.
+- **בייצור** השרת מסרב לעלות בלי `SECRET_KEY` ו-`DATABASE_URL` מפורשים.
+- בדיקות וסקריפטים מייצרים סודות זמניים בעצמם; אין סיסמאות בריפו.
+
+**סדר עדיפויות:** ערך בשם הקנוני (`POETRY_*`) גובר על ה-alias הישן
+(`SECRET_KEY` וכו׳) ללא תלות במקור. לכן בסקריפטים ובבדיקות יש להשתמש
+בשמות הקנוניים, אחרת קובץ `.env` מקומי עלול לגבור עליהם.

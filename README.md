@@ -35,8 +35,17 @@ All settings are typed and grouped in `app/configuration/main.py`
 (`database`, `security`, `google`, `loyalty`, `admin`). Each group reads
 `POETRY_<GROUP>__<FIELD>` — so Helm sets `POETRY_DB__POOL_SIZE` — while the
 flat legacy names (`DATABASE_URL`, `SECRET_KEY`…) still work as aliases.
-Secrets are `SecretStr`, so they never appear in logs or tracebacks, and
-`database.safe_url` masks the password for startup logging.
+Every credential — the session key, Google client secret, admin password,
+database password — is read from the environment through this module and
+typed as `SecretStr`, so none appears in logs, `repr()` or tracebacks;
+`database.safe_url` masks the password for startup logging. No key is
+hardcoded anywhere: unset in development the session key is generated per
+process, and in production the app refuses to start without an explicit
+`SECRET_KEY` and `DATABASE_URL` rather than signing cookies with a
+throwaway value.
+
+A canonical `POETRY_*` value outranks its legacy alias whatever the source,
+so prefer the canonical names when overriding for a script or test run.
 
 Every database access goes through `get_db_handler()` in `app/db.py`. The
 handler owns the engine and session factory, builds the engine lazily from
@@ -115,7 +124,7 @@ Money is stored in agorot (integers) throughout — no floats. Enums are persist
 
 ```bash
 cd backend
-.venv/bin/python -m pytest -q              # 53 unit tests: ledger, menu, ordering, config
+.venv/bin/python -m pytest -q              # 62 unit tests: ledger, menu, ordering, config, secrets
 .venv/bin/python scripts/smoke_test.py     # 62 end-to-end API checks
 cd ../frontend && npm run typecheck && npm run build
 ```

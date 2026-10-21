@@ -9,13 +9,25 @@ together and Helm can set them one by one:
 
 Flat legacy names (DATABASE_URL, SECRET_KEY, GOOGLE_CLIENT_ID…) are still
 honoured as aliases so an existing .env keeps working.
+
+Precedence follows the order in each AliasChoices list, not the source: a
+canonical POETRY_* value wins over its legacy alias even when the legacy one
+comes from the process environment and the canonical one from .env. Prefer
+the canonical names when overriding for a script or a test run.
 """
 
+import os
+import secrets as _secrets
 from enum import StrEnum
 from functools import lru_cache
 
-from pydantic import AliasChoices, Field, PostgresDsn, SecretStr, computed_field
+from pydantic import AliasChoices, Field, SecretStr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _env_present(*names: str) -> bool:
+    """True when any of these environment variables holds a non-empty value."""
+    return any(os.environ.get(name, "").strip() for name in names)
 
 
 class AppEnv(StrEnum):
@@ -76,11 +88,15 @@ class SecuritySettings(BaseSettings):
 
     model_config = _BASE_CONFIG | SettingsConfigDict(env_prefix="POETRY_SECURITY__")
 
+    # Generated per process when unset: good enough for a dev run, and it
+    # cannot be a known constant baked into the image. Sessions do not
+    # survive a restart without an explicit key, which is the intended hint.
     secret_key: SecretStr = Field(
-        default=SecretStr("dev-only-insecure-secret-change-me"),
+        default_factory=lambda: SecretStr(_secrets.token_urlsafe(64)),
         validation_alias=AliasChoices(
             "secret_key", "POETRY_SECURITY__SECRET_KEY", "SECRET_KEY"
         ),
+        description="Signs session JWTs. Required in production.",
     )
     session_cookie_name: str = "poet_session"
     session_ttl_hours: int = Field(default=24 * 14, ge=1)
@@ -190,16 +206,45 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.app_env is AppEnv.production
 
+    def missing_production_config(self) -> list[str]:
+        """Names of required settings that production must not run without."""
+        if self.app_env is not AppEnv.production:
+            return []
+        missing: list[str] = []
+        if not _env_present("POETRY_SECURITY__SECRET_KEY", "SECRET_KEY"):
+            missing.append("SECRET_KEY (or POETRY_SECURITY__SECRET_KEY)")
+        if not _env_present("POETRY_DB__URL", "DATABASE_URL"):
+            missing.append("DATABASE_URL (or POETRY_DB__URL)")
+        return missing
+
     @property
     def google_redirect_uri(self) -> str:
         """Must match the redirect URI registered in the Google console."""
         return f"{self.public_api_url}/api/auth/google/callback"
 
 
+class ConfigurationError(RuntimeError):
+    """Raised when production is missing configuration it must not run without."""
+
+
 @lru_cache
 def get_settings() -> Settings:
-    """Cached accessor; clear the cache in tests that change the environment."""
-    return Settings()
+    """Cached accessor; clear the cache in tests that change the environment.
+
+    Raises ConfigurationError in production when a required secret is absent.
+    The check lives here rather than in a validator so pydantic does not echo
+    the raw settings — including secrets — into the error message.
+    """
+    loaded = Settings()
+    missing = loaded.missing_production_config()
+    if missing:
+        raise ConfigurationError(
+            "Missing required configuration in production: "
+            + ", ".join(missing)
+            + ". Set it in the environment or, on Kubernetes, in the Secret "
+            "referenced by the Helm chart."
+        )
+    return loaded
 
 
 settings = get_settings()
