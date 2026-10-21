@@ -1,0 +1,150 @@
+import { useState } from 'react'
+import { Navigate } from 'react-router-dom'
+import { googleLoginUrl } from '../lib/api'
+import { useAuth } from '../lib/auth'
+import { Chickpea } from '../components/Chickpea'
+import { Logo } from '../components/Logo'
+
+export function LoginPage() {
+  const { user, loading, googleEnabled, loginAdmin } = useAuth()
+  const [showAdmin, setShowAdmin] = useState(false)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  if (loading) return null
+  if (user) return <Navigate to={user.role === 'admin' ? '/admin' : '/'} replace />
+
+  async function submitAdmin(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    setBusy(true)
+    try {
+      await loginAdmin(email, password)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'ההתחברות נכשלה')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const oauthError = new URLSearchParams(window.location.search).get('error')
+
+  return (
+    <div className="min-h-screen grid place-items-center px-4 py-10">
+      <div className="w-full max-w-md">
+        <div className="flex flex-col items-center text-center gap-4 mb-8">
+          <Logo className="w-28 h-28" />
+          <div>
+            <h1 className="font-display text-3xl text-wine">חומוס המשורר</h1>
+            <p className="text-ink/60 mt-1">מועדון הלקוחות</p>
+          </div>
+          <div className="card px-5 py-3 flex items-center gap-2 text-sm">
+            <Chickpea className="w-6 h-6 coin-pop" />
+            <span>
+              כל הזמנה מזכה אותך ב<strong>מטבעות משורר</strong> — וכל מטבע מתקרב למנה הבאה
+            </span>
+          </div>
+        </div>
+
+        <div className="card p-6">
+          {oauthError && (
+            <p className="mb-4 rounded-2xl bg-red-50 px-4 py-2 text-sm text-red-700">
+              ההתחברות עם Google נכשלה: {oauthError}
+            </p>
+          )}
+
+          {googleEnabled ? (
+            <a href={googleLoginUrl()} className="btn-primary w-full !py-3 text-base">
+              <GoogleMark />
+              התחברות עם Google
+            </a>
+          ) : (
+            <p className="rounded-2xl bg-chickpea/15 px-4 py-3 text-sm text-wine-dark">
+              התחברות Google אינה מוגדרת בשרת. הגדירו
+              <code className="mx-1 rounded bg-white/70 px-1">GOOGLE_CLIENT_ID</code>
+              ו-
+              <code className="mx-1 rounded bg-white/70 px-1">GOOGLE_CLIENT_SECRET</code>
+              בקובץ ‎.env‎.
+            </p>
+          )}
+
+          <div className="my-5 flex items-center gap-3 text-xs text-ink/40">
+            <span className="h-px flex-1 bg-ink/10" />
+            או
+            <span className="h-px flex-1 bg-ink/10" />
+          </div>
+
+          {showAdmin ? (
+            <form onSubmit={submitAdmin} className="space-y-3">
+              <input
+                className="input"
+                type="email"
+                placeholder="אימייל מנהל"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="username"
+              />
+              <input
+                className="input"
+                type="password"
+                placeholder="סיסמה"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+              />
+              {error && <p className="text-sm text-red-600">{error}</p>}
+              <button className="btn-teal w-full" disabled={busy}>
+                {busy ? 'מתחבר…' : 'כניסת מנהל'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAdmin(false)}
+                className="w-full text-sm text-ink/50 hover:text-ink"
+              >
+                ביטול
+              </button>
+            </form>
+          ) : (
+            <button
+              onClick={() => setShowAdmin(true)}
+              className="btn-ghost w-full"
+            >
+              כניסת מנהל מועדון
+            </button>
+          )}
+        </div>
+
+        <p className="mt-6 text-center text-xs text-ink/45">
+          ביצרון 13, תל אביב · 03-6878635
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function GoogleMark() {
+  return (
+    <svg viewBox="0 0 24 24" className="w-5 h-5" aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.76h3.57c2.08-1.92 3.27-4.74 3.27-8.09Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.76c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.84 14.11a6.6 6.6 0 0 1 0-4.22V7.05H2.18a11 11 0 0 0 0 9.9l3.66-2.84Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.05l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38Z"
+      />
+    </svg>
+  )
+}
