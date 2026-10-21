@@ -55,8 +55,8 @@ MENU: list[dict] = [
     dict(name_he="חמוצים", name_en="Pickles", category="sides",
          description_he="מנת חמוצים של הבית", price_agorot=900,
          emoji="🥒", is_vegan=True, sort_order=22),
-    dict(name_he="פיתה חמה", name_en="Warm Pita", category="sides",
-         description_he="פיתה טרייה מהטאבון", price_agorot=600,
+    dict(name_he="פיתה על הגז", name_en="Grilled Pita", category="sides",
+         description_he="פיתה חמה ישר מהגז", price_agorot=600,
          emoji="🫓", is_vegan=True, sort_order=23),
     dict(name_he="פלאפל (5 יח')", name_en="Falafel (5 pcs)", category="sides",
          description_he="חמישה כדורי פלאפל טריים", price_agorot=1500,
@@ -84,7 +84,7 @@ MENU: list[dict] = [
 ]
 
 REWARDS: list[dict] = [
-    dict(name_he="פיתה חמה במתנה", description_he="פיתה טרייה מהטאבון",
+    dict(name_he="פיתה על הגז במתנה", description_he="פיתה חמה ישר מהגז",
          cost_coins=60, emoji="🫓", sort_order=1),
     dict(name_he="מנת חמוצים", description_he="חמוצים של הבית",
          cost_coins=90, emoji="🥒", sort_order=2),

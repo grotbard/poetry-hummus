@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
+import type { User } from '../lib/types'
 import { CoinAmount } from './Chickpea'
 import { Logo } from './Logo'
 
@@ -9,6 +11,37 @@ const memberTabs = [
   { to: '/coins', label: 'מטבעות משורר' },
   { to: '/rewards', label: 'הטבות' },
 ]
+
+/** Google profile picture, falling back to the member's initial. */
+function Avatar({ user }: { user: User }) {
+  const [broken, setBroken] = useState(false)
+  const label = user.full_name || user.email
+  const initial = label.trim()[0]?.toUpperCase() ?? '?'
+
+  if (user.picture_url && !broken) {
+    return (
+      <img
+        src={user.picture_url}
+        alt={label}
+        title={label}
+        // Google blocks hotlinking when a referrer is sent.
+        referrerPolicy="no-referrer"
+        onError={() => setBroken(true)}
+        className="h-9 w-9 shrink-0 rounded-full object-cover ring-2 ring-white/70"
+      />
+    )
+  }
+  return (
+    <div
+      title={label}
+      aria-label={label}
+      className="grid h-9 w-9 shrink-0 place-items-center rounded-full
+                 bg-teal-deep text-sm font-bold text-white ring-2 ring-white/70"
+    >
+      {initial}
+    </div>
+  )
+}
 
 export function Layout() {
   const { user, logout } = useAuth()
@@ -36,6 +69,8 @@ export function Layout() {
               <div className="rounded-full bg-wine px-3 py-1.5 text-hummus-light">
                 <CoinAmount value={user.coin_balance} size="sm" />
               </div>
+
+              <Avatar user={user} />
               {user.role === 'admin' && (
                 <NavLink to="/admin" className="btn-ghost !px-3 !py-1.5 text-sm">
                   ניהול

@@ -136,7 +136,7 @@ async def main() -> int:
         coin_rules = (await client.get("/api/coins/rules")).json()
         per_coin = coin_rules["agorot_per_coin"]
         hummus = next(m for m in menu if m["name_he"] == "חומוס המשורר")
-        pita = next(m for m in menu if m["name_he"] == "פיתה חמה")
+        pita = next(m for m in menu if m["name_he"] == "פיתה על הגז")
 
         r = await client.get(
             f"/api/coins/redeemable?subtotal_agorot={hummus['price_agorot']}",
