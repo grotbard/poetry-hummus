@@ -21,10 +21,14 @@ a chickpea-based loyalty currency in the McDonald's-rewards mould.
 ```bash
 ./setup.sh                  # venv + backend deps + frontend deps + .env
 # then edit backend/.env (Google credentials, admin password)
-docker compose up -d db     # Postgres on port 5433
+./db.sh start               # Postgres on port 5433
 cd backend  && .venv/bin/uvicorn app.main:app --reload
 cd frontend && npm run dev  # → http://localhost:5173
 ```
+
+`./db.sh` drives a native Postgres in `~/pgdata/poetry-hummus`
+(`start`, `stop`, `status`, `psql`, `backup`, `logs`). If you prefer
+containers, `docker compose up -d db` serves the same port.
 
 Full instructions, including how to create the Google OAuth client:
 **[docs/SETUP.md](docs/SETUP.md)**.

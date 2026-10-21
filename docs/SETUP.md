@@ -200,3 +200,42 @@ PVC לתמונות המנות, ו-Job מסוג `pre-upgrade` שמריץ `alembic
 **סדר עדיפויות:** ערך בשם הקנוני (`POETRY_*`) גובר על ה-alias הישן
 (`SECRET_KEY` וכו׳) ללא תלות במקור. לכן בסקריפטים ובבדיקות יש להשתמש
 בשמות הקנוניים, אחרת קובץ `.env` מקומי עלול לגבור עליהם.
+
+## 15. בסיס הנתונים המקומי
+
+שתי אפשרויות, שתיהן על פורט **5433** (כדי לא להתנגש בהתקנת Postgres ברירת מחדל):
+
+**א. Postgres מקומי (מומלץ כשאין גישה ל-Docker)**
+
+```bash
+./db.sh start      # הפעלה
+./db.sh status     # מצב
+./db.sh psql       # חיבור אינטראקטיבי
+./db.sh backup     # גיבוי ל-~/pgdata/backups
+./db.sh logs       # לוג השרת
+./db.sh stop       # עצירה
+```
+
+- נתונים: `~/pgdata/poetry-hummus`
+- גיבויים: `~/pgdata/backups`
+- חיבור ידני או מכלי GUI: host `localhost`, port `5433`, user `poet`,
+  ללא סיסמה, database `poetry_hummus`
+
+**ב. Docker**
+
+```bash
+docker compose up -d db
+```
+
+> אל תחזיקו את תיקיית הנתונים תחת `/tmp` — macOS מנקה אותה, וכל ההזמנות,
+> החברים והמטבעות יימחקו.
+
+**זהירות:** `scripts/smoke_test.py` מוחק את כל הטבלאות בבסיס הנתונים שאליו
+הוא מכוון. הריצו אותו מול בסיס נתונים זמני בלבד:
+
+```bash
+createdb -h localhost -p 5433 -U poet smoke_scratch
+POETRY_DB__URL="postgresql+asyncpg://poet@localhost:5433/smoke_scratch" \
+  .venv/bin/python scripts/smoke_test.py
+dropdb -h localhost -p 5433 -U poet smoke_scratch
+```

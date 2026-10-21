@@ -87,9 +87,10 @@ Setup complete. Next steps:
      See docs/SETUP.md for how to create the Google OAuth client.
 
   2. Start Postgres (listens on 5433 to avoid clashing with a local install):
-       docker compose up -d db
+       ./db.sh start            # native, data in ~/pgdata/poetry-hummus
+       docker compose up -d db  # or in a container
      Then point backend/.env at it:
-       DATABASE_URL=postgresql+asyncpg://poet:poet@localhost:5433/poetry_hummus
+       POETRY_DB__URL=postgresql+asyncpg://poet@localhost:5433/poetry_hummus
 
   3. Run the two dev servers in separate terminals:
        cd backend  && .venv/bin/uvicorn app.main:app --reload
