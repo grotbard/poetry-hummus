@@ -57,7 +57,8 @@ the ledger is the source of truth and the two are asserted equal in tests.
 - **Block/unblock** a member (self-disable is refused); blocked members lose access immediately.
 - **Activity log** — logins, registrations, orders, status changes, redemptions and admin
   actions, filterable by type and time window.
-- **Menu** — add items, upload a photo per item, edit prices and toggle availability live.
+- **Menu** — add items, upload a photo per item, reorder groups and items with ▲▼,
+  edit prices and toggle availability live.
   Deleting removes an item outright if it was never ordered; one with order history is
   retired (hidden) instead, so past orders keep their link. Order lines also snapshot
   name + price, so history survives any menu change.
@@ -68,7 +69,12 @@ Replacing or deleting an image removes the old file.
 
 ## Data model
 
-`users` · `menu_items` · `orders` · `order_items` · `rewards` · `coin_transactions` · `activity_log`
+`users` · `menu_categories` · `menu_items` · `orders` · `order_items` · `rewards` ·
+`coin_transactions` · `activity_log`
+
+Display order is data, not code: `menu_categories.sort_order` orders the groups and
+`menu_items.sort_order` orders items within a group, both editable from the admin UI.
+An item whose category has no row sorts last rather than vanishing.
 
 Money is stored in agorot (integers) throughout — no floats. Enums are persisted by value.
 
@@ -76,7 +82,7 @@ Money is stored in agorot (integers) throughout — no floats. Enums are persist
 
 ```bash
 cd backend
-.venv/bin/python -m pytest -q              # 29 unit tests: coin ledger + menu admin
+.venv/bin/python -m pytest -q              # 35 unit tests: ledger, menu admin, ordering
 .venv/bin/python scripts/smoke_test.py     # 62 end-to-end API checks
 cd ../frontend && npm run typecheck && npm run build
 ```

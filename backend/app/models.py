@@ -98,6 +98,18 @@ class User(Base):
     )
 
 
+class MenuCategory(Base):
+    """A menu group (חומוסים, קינוחים…) with an admin-controlled position."""
+
+    __tablename__ = "menu_categories"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Stable slug referenced by MenuItem.category.
+    key: Mapped[str] = mapped_column(String(60), unique=True, index=True)
+    label_he: Mapped[str] = mapped_column(String(120))
+    sort_order: Mapped[int] = mapped_column(Integer, default=100, index=True)
+
+
 class MenuItem(Base):
     __tablename__ = "menu_items"
 

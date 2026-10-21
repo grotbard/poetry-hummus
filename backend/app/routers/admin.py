@@ -7,8 +7,10 @@ from sqlalchemy import Select, case, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
+from ..menu_query import menu_ordered
 from ..models import (
     ActivityLog,
+    MenuCategory,
     CoinTransaction,
     CoinTxKind,
     MenuItem,
@@ -22,6 +24,7 @@ from ..models import (
 )
 from ..schemas import (
     ActivityLogOut,
+    MenuCategoryOut,
     AdminStats,
     AdminUserRow,
     CoinAdjust,
@@ -30,6 +33,7 @@ from ..schemas import (
     MenuItemOut,
     MenuItemPatch,
     OrderOut,
+    ReorderRequest,
     Paginated,
     RewardOut,
     UserOut,
@@ -342,7 +346,7 @@ async def list_activity(
 async def admin_list_menu(db: AsyncSession = Depends(get_db)) -> list[MenuItem]:
     """Unlike the public menu, this includes unavailable items."""
     rows = await db.execute(
-        select(MenuItem).order_by(MenuItem.category, MenuItem.sort_order, MenuItem.id)
+        menu_ordered()
     )
     return list(rows.scalars().all())
 
@@ -515,6 +519,88 @@ async def delete_menu_item(
     await db.commit()
     if image and not ordered:
         _remove_media(image)
+
+
+@router.get("/categories", response_model=list[MenuCategoryOut])
+async def list_categories(db: AsyncSession = Depends(get_db)) -> list[MenuCategory]:
+    rows = await db.execute(
+        select(MenuCategory).order_by(MenuCategory.sort_order, MenuCategory.id)
+    )
+    return list(rows.scalars().all())
+
+
+@router.post("/categories/reorder", response_model=list[MenuCategoryOut])
+async def reorder_categories(
+    payload: ReorderRequest,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> list[MenuCategory]:
+    """Rewrite category positions to match the order of the ids given."""
+    rows = (
+        await db.execute(select(MenuCategory).where(MenuCategory.id.in_(payload.ids)))
+    ).scalars().all()
+    by_id = {c.id: c for c in rows}
+
+    missing = set(payload.ids) - by_id.keys()
+    if missing:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"Unknown category id(s): {sorted(missing)}"
+        )
+
+    for position, category_id in enumerate(payload.ids):
+        by_id[category_id].sort_order = position
+
+    await log_activity(
+        db,
+        "admin.categories_reordered",
+        actor_id=admin.id,
+        details={"order": [by_id[i].key for i in payload.ids]},
+    )
+    await db.commit()
+
+    result = await db.execute(
+        select(MenuCategory).order_by(MenuCategory.sort_order, MenuCategory.id)
+    )
+    return list(result.scalars().all())
+
+
+@router.post("/menu/reorder", response_model=list[MenuItemOut])
+async def reorder_menu_items(
+    payload: ReorderRequest,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> list[MenuItem]:
+    """Rewrite item positions within their category to match the ids given."""
+    rows = (
+        await db.execute(select(MenuItem).where(MenuItem.id.in_(payload.ids)))
+    ).scalars().all()
+    by_id = {m.id: m for m in rows}
+
+    missing = set(payload.ids) - by_id.keys()
+    if missing:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"Unknown menu item id(s): {sorted(missing)}"
+        )
+    categories = {by_id[i].category for i in payload.ids}
+    if len(categories) > 1:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Reorder one category at a time — ids span several categories",
+        )
+
+    for position, item_id in enumerate(payload.ids):
+        by_id[item_id].sort_order = position
+
+    await log_activity(
+        db,
+        "admin.menu_reordered",
+        actor_id=admin.id,
+        details={"category": categories.pop(), "count": len(payload.ids)},
+    )
+    await db.commit()
+
+    result = await db.execute(menu_ordered())
+    return list(result.scalars().all())
 
 
 @router.get("/rewards", response_model=list[RewardOut])

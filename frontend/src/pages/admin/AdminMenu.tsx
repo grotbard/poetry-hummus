@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, uploadFile } from '../../lib/api'
-import { CATEGORY_LABELS, shekels } from '../../lib/format'
-import type { MenuItem } from '../../lib/types'
+import { shekels } from '../../lib/format'
+import type { MenuCategory, MenuItem } from '../../lib/types'
 import { MenuItemForm } from './MenuItemForm'
 
 export function AdminMenu() {
@@ -10,16 +10,41 @@ export function AdminMenu() {
   const [showForm, setShowForm] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<MenuItem | null>(null)
   const [busyItem, setBusyItem] = useState<number | null>(null)
+  const [reordering, setReordering] = useState(false)
   const [error, setError] = useState('')
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ['admin', 'menu'],
     queryFn: () => api.get<MenuItem[]>('/api/admin/menu'),
   })
+  const { data: categories = [] } = useQuery({
+    queryKey: ['admin', 'categories'],
+    queryFn: () => api.get<MenuCategory[]>('/api/admin/categories'),
+  })
 
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ['admin', 'menu'] })
+    await queryClient.invalidateQueries({ queryKey: ['admin', 'categories'] })
     await queryClient.invalidateQueries({ queryKey: ['menu'] })
+    await queryClient.invalidateQueries({ queryKey: ['categories'] })
+  }
+
+  /** Move one entry of `ids` by `delta` and persist the new order. */
+  async function move(endpoint: string, ids: number[], index: number, delta: number) {
+    const target = index + delta
+    if (target < 0 || target >= ids.length) return
+    const next = [...ids]
+    ;[next[index], next[target]] = [next[target], next[index]]
+    setError('')
+    setReordering(true)
+    try {
+      await api.post(endpoint, { ids: next })
+      await refresh()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setReordering(false)
+    }
   }
 
   const patch = useMutation({
@@ -66,12 +91,22 @@ export function AdminMenu() {
 
   if (isLoading) return <p className="text-ink/50">טוען תפריט…</p>
 
+  // Items arrive in category order; group them while preserving it.
   const grouped = new Map<string, MenuItem[]>()
   for (const item of items) {
     const list = grouped.get(item.category) ?? []
     list.push(item)
     grouped.set(item.category, list)
   }
+
+  // Show every category that has items, plus empty ones the admin can reorder.
+  const orderedKeys = [
+    ...categories.map((c) => c.key).filter((k) => grouped.has(k)),
+    ...[...grouped.keys()].filter((k) => !categories.some((c) => c.key === k)),
+  ]
+  const categoryIds = categories.filter((c) => grouped.has(c.key)).map((c) => c.id)
+  const labelOf = (key: string) =>
+    categories.find((c) => c.key === key)?.label_he ?? key
 
   return (
     <div className="space-y-6">
@@ -88,15 +123,42 @@ export function AdminMenu() {
         <p className="rounded-2xl bg-red-50 px-4 py-2 text-sm text-red-700">{error}</p>
       )}
 
-      {[...grouped.entries()].map(([category, group]) => (
+      {orderedKeys.map((category) => {
+        const group = grouped.get(category) ?? []
+        const itemIds = group.map((i) => i.id)
+        const catIndex = categoryIds.indexOf(
+          categories.find((c) => c.key === category)?.id ?? -1,
+        )
+        return (
         <section key={category}>
-          <h2 className="mb-2 text-lg text-wine">{CATEGORY_LABELS[category] ?? category}</h2>
+          <div className="mb-2 flex items-center gap-2">
+            <h2 className="text-lg text-wine">{labelOf(category)}</h2>
+            {catIndex >= 0 && (
+              <div className="flex gap-0.5">
+                <MoveButton
+                  dir="up"
+                  disabled={reordering || catIndex === 0}
+                  title="העברת הקטגוריה למעלה"
+                  onClick={() => move('/api/admin/categories/reorder', categoryIds, catIndex, -1)}
+                />
+                <MoveButton
+                  dir="down"
+                  disabled={reordering || catIndex === categoryIds.length - 1}
+                  title="העברת הקטגוריה למטה"
+                  onClick={() => move('/api/admin/categories/reorder', categoryIds, catIndex, 1)}
+                />
+              </div>
+            )}
+          </div>
           <div className="card divide-y divide-ink/[0.07]">
-            {group.map((item) => (
+            {group.map((item, index) => (
               <MenuRow
                 key={item.id}
                 item={item}
-                busy={busyItem === item.id || patch.isPending}
+                busy={busyItem === item.id || patch.isPending || reordering}
+                canMoveUp={index > 0}
+                canMoveDown={index < group.length - 1}
+                onMove={(delta) => move('/api/admin/menu/reorder', itemIds, index, delta)}
                 onUpload={(file) => handleUpload(item, file)}
                 onRemoveImage={() => handleRemoveImage(item)}
                 onPrice={(price_agorot) => patch.mutate({ id: item.id, body: { price_agorot } })}
@@ -108,7 +170,8 @@ export function AdminMenu() {
             ))}
           </div>
         </section>
-      ))}
+        )
+      })}
 
       {showForm && <MenuItemForm onClose={() => setShowForm(false)} />}
 
@@ -145,9 +208,38 @@ export function AdminMenu() {
   )
 }
 
+function MoveButton({
+  dir,
+  disabled,
+  title,
+  onClick,
+}: {
+  dir: 'up' | 'down'
+  disabled: boolean
+  title: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={title}
+      className="grid h-6 w-6 place-items-center rounded-lg text-ink/45 transition
+                 hover:bg-ink/10 hover:text-wine disabled:opacity-25
+                 disabled:hover:bg-transparent"
+    >
+      {dir === 'up' ? '▲' : '▼'}
+    </button>
+  )
+}
+
 function MenuRow({
   item,
   busy,
+  canMoveUp,
+  canMoveDown,
+  onMove,
   onUpload,
   onRemoveImage,
   onPrice,
@@ -156,6 +248,9 @@ function MenuRow({
 }: {
   item: MenuItem
   busy: boolean
+  canMoveUp: boolean
+  canMoveDown: boolean
+  onMove: (delta: number) => void
   onUpload: (file: File) => void
   onRemoveImage: () => void
   onPrice: (agorot: number) => void
@@ -166,6 +261,21 @@ function MenuRow({
 
   return (
     <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+      <div className="flex shrink-0 flex-col">
+        <MoveButton
+          dir="up"
+          disabled={busy || !canMoveUp}
+          title="העברה למעלה"
+          onClick={() => onMove(-1)}
+        />
+        <MoveButton
+          dir="down"
+          disabled={busy || !canMoveDown}
+          title="העברה למטה"
+          onClick={() => onMove(1)}
+        />
+      </div>
+
       {/* Thumbnail doubles as the upload trigger. */}
       <button
         onClick={() => fileInput.current?.click()}

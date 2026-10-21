@@ -31,6 +31,13 @@ export interface MenuItem {
   sort_order: number
 }
 
+export interface MenuCategory {
+  id: number
+  key: string
+  label_he: string
+  sort_order: number
+}
+
 export interface OrderItem {
   id: number
   menu_item_id: number | null

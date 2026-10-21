@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { CATEGORY_LABELS, shekels } from '../lib/format'
-import type { CoinRules, MenuItem, Order } from '../lib/types'
+import type { CoinRules, MenuCategory, MenuItem, Order } from '../lib/types'
 import { Chickpea, CoinAmount } from '../components/Chickpea'
 
 type Cart = Record<number, number>
@@ -24,8 +24,14 @@ export function MenuPage() {
     queryKey: ['coin-rules'],
     queryFn: () => api.get<CoinRules>('/api/coins/rules'),
   })
+  const { data: categories = [] } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => api.get<MenuCategory[]>('/api/categories'),
+  })
 
   const byId = useMemo(() => new Map(menu.map((m) => [m.id, m])), [menu])
+  // The API already returns items in category order, so insertion order here
+  // reproduces it; `categories` supplies the Hebrew label.
   const grouped = useMemo(() => {
     const out = new Map<string, MenuItem[]>()
     for (const item of menu) {
@@ -35,6 +41,11 @@ export function MenuPage() {
     }
     return out
   }, [menu])
+
+  const labelFor = useMemo(() => {
+    const byKey = new Map(categories.map((c) => [c.key, c.label_he]))
+    return (key: string) => byKey.get(key) ?? CATEGORY_LABELS[key] ?? key
+  }, [categories])
 
   const subtotal = useMemo(
     () =>
@@ -121,7 +132,7 @@ export function MenuPage() {
         {[...grouped.entries()].map(([category, items]) => (
           <section key={category}>
             <h2 className="mb-3 text-xl text-wine">
-              {CATEGORY_LABELS[category] ?? category}
+              {labelFor(category)}
             </h2>
             <div className="grid gap-3 sm:grid-cols-2">
               {items.map((item) => (

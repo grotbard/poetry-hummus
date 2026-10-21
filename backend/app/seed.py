@@ -8,8 +8,18 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import settings
-from .models import MenuItem, Reward, User, UserRole
+from .models import MenuCategory, MenuItem, Reward, User, UserRole
 from .security import hash_password
+
+# Display order of the menu groups; editable from the admin UI.
+CATEGORIES: list[dict] = [
+    dict(key="hummus", label_he="חומוסים", sort_order=0),
+    dict(key="mains", label_he="עיקריות", sort_order=1),
+    dict(key="sides", label_he="תוספות וסלטים", sort_order=2),
+    dict(key="drinks", label_he="שתייה", sort_order=3),
+    dict(key="desserts", label_he="קינוחים", sort_order=4),
+    dict(key="other", label_he="שונות", sort_order=5),
+]
 
 MENU: list[dict] = [
     # --- חומוסים ---
@@ -95,6 +105,10 @@ REWARDS: list[dict] = [
 
 async def seed_all(db: AsyncSession) -> None:
     """Idempotent: safe to run on every startup."""
+    category_count = (await db.execute(select(func.count(MenuCategory.id)))).scalar() or 0
+    if category_count == 0:
+        db.add_all(MenuCategory(**row) for row in CATEGORIES)
+
     menu_count = (await db.execute(select(func.count(MenuItem.id)))).scalar() or 0
     if menu_count == 0:
         db.add_all(MenuItem(**row) for row in MENU)

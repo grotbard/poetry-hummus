@@ -3,8 +3,10 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
+from ..menu_query import menu_ordered
 from ..models import (
     CoinTransaction,
+    MenuCategory,
     MenuItem,
     Order,
     OrderStatus,
@@ -13,6 +15,7 @@ from ..models import (
 )
 from ..schemas import (
     CoinTransactionOut,
+    MenuCategoryOut,
     MenuItemOut,
     OrderCreate,
     OrderOut,
@@ -36,11 +39,18 @@ router = APIRouter(prefix="/api", tags=["members"])
 async def list_menu(db: AsyncSession = Depends(get_db)) -> list[MenuItem]:
     """Public menu — no auth, so the storefront works before sign-in."""
     result = await db.execute(
-        select(MenuItem)
-        .where(MenuItem.is_available.is_(True))
-        .order_by(MenuItem.category, MenuItem.sort_order, MenuItem.id)
+        menu_ordered().where(MenuItem.is_available.is_(True))
     )
     return list(result.scalars().all())
+
+
+@router.get("/categories", response_model=list[MenuCategoryOut])
+async def list_categories(db: AsyncSession = Depends(get_db)) -> list[MenuCategory]:
+    """Group order for rendering the menu; public, like the menu itself."""
+    rows = await db.execute(
+        select(MenuCategory).order_by(MenuCategory.sort_order, MenuCategory.id)
+    )
+    return list(rows.scalars().all())
 
 
 @router.get("/rewards", response_model=list[RewardOut])

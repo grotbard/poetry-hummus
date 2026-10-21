@@ -54,6 +54,19 @@ class MenuItemOut(ORMModel):
     sort_order: int
 
 
+class MenuCategoryOut(ORMModel):
+    id: int
+    key: str
+    label_he: str
+    sort_order: int
+
+
+class ReorderRequest(BaseModel):
+    """Ordered list of ids; position in the list becomes the new sort order."""
+
+    ids: list[int] = Field(min_length=1)
+
+
 class MenuItemIn(BaseModel):
     name_he: str = Field(min_length=1, max_length=200)
     name_en: str = ""
