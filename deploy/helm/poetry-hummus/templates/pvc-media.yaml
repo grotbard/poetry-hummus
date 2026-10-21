@@ -1,0 +1,23 @@
+{{- if .Values.media.persistence.enabled }}
+{{- /*
+Uploaded menu photos. ReadWriteMany so several API replicas can serve them;
+with a ReadWriteOnce class, pin replicaCount.api to 1 or move to S3.
+*/ -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "poetry-hummus.fullname" . }}-media
+  labels:
+    {{- include "poetry-hummus.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - {{ .Values.media.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.media.persistence.size }}
+  {{- with .Values.media.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+{{- end }}

@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 
 from sqlalchemy import select  # noqa: E402
 
-from app.db import SessionLocal, engine  # noqa: E402
+from app.db import get_db_handler  # noqa: E402
 from app.models import (  # noqa: E402
     CoinTxKind,
     MenuItem,
@@ -38,7 +38,8 @@ NOTES = ["בלי בצל בבקשה", "", "חריף מאוד", "", "לקחת, ל�
 
 async def main() -> None:
     random.seed(7)
-    async with SessionLocal() as db:
+    handler = get_db_handler()
+    async with handler.session() as db:
         menu = (
             await db.execute(select(MenuItem).where(MenuItem.is_available.is_(True)))
         ).scalars().all()
@@ -106,7 +107,7 @@ async def main() -> None:
         await db.commit()
         print(f"Seeded {created} demo members with orders and coin history.")
 
-    await engine.dispose()
+    await handler.dispose()
 
 
 if __name__ == "__main__":

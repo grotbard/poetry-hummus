@@ -1,0 +1,6 @@
+apiVersion: v2
+name: poetry-hummus
+description: חומוס המשורר — club member app (API + web)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

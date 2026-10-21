@@ -1,0 +1,36 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "poetry-hummus.fullname" . }}
+  labels:
+    {{- include "poetry-hummus.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- $fullname := include "poetry-hummus.fullname" . }}
+    {{- $svc := .Values.service }}
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- $component := .service }}
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ $fullname }}-{{ $component }}
+                port:
+                  number: {{ if eq $component "api" }}{{ $svc.api.port }}{{ else }}{{ $svc.web.port }}{{ end }}
+          {{- end }}
+    {{- end }}
+{{- end }}

@@ -1,0 +1,21 @@
+{{ .Chart.Name }} {{ .Chart.AppVersion }} deployed as {{ .Release.Name }}.
+
+  Web : {{ .Values.config.frontendUrl }}
+  API : {{ .Values.config.publicApiUrl }}
+
+{{- if not .Values.secrets.existingSecret }}
+
+WARNING: credentials came from `secrets.values`, so they are stored in the
+release manifest. For production set `secrets.existingSecret` to a Secret you
+manage separately.
+{{- end }}
+{{- if not .Values.media.persistence.enabled }}
+
+WARNING: media persistence is disabled — uploaded menu photos will be lost
+when an API pod restarts.
+{{- end }}
+
+Check rollout:
+  kubectl rollout status deploy/{{ include "poetry-hummus.fullname" . }}-api
+  kubectl run -it --rm curl --image=curlimages/curl --restart=Never -- \
+    curl -s http://{{ include "poetry-hummus.fullname" . }}-api:{{ .Values.service.api.port }}/api/ready

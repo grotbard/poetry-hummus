@@ -1,0 +1,35 @@
+{{- if .Values.migrations.enabled }}
+{{- /* Runs before the new pods roll, so the schema is ready for them. */ -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "poetry-hummus.fullname" . }}-migrate-{{ .Release.Revision }}
+  labels:
+    {{- include "poetry-hummus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "poetry-hummus.labels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: "{{ .Values.image.api.repository }}:{{ .Values.image.api.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.api.pullPolicy }}
+          command: ["alembic", "upgrade", "head"]
+          env:
+            {{- include "poetry-hummus.apiEnv" . | nindent 12 }}
+          resources: {{- toYaml .Values.resources.api | nindent 12 }}
+{{- end }}

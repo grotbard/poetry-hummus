@@ -9,7 +9,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .config import settings
+from .configuration import settings
 from .models import (
     ActivityLog,
     CoinTransaction,
@@ -30,7 +30,7 @@ MAX_REDEEM_FRACTION = 0.5
 
 def coins_for_amount(total_agorot: int) -> int:
     """Coins earned for a paid order: COINS_PER_SHEKEL per whole shekel."""
-    return (total_agorot // 100) * settings.coins_per_shekel
+    return (total_agorot // 100) * settings.loyalty.coins_per_shekel
 
 
 def new_order_number() -> str:

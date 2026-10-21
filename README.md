@@ -9,6 +9,8 @@ a chickpea-based loyalty currency in the McDonald's-rewards mould.
 | Layer | Choice |
 |---|---|
 | Backend | Python · FastAPI · **SQLAlchemy 2.0** (async ORM) · Alembic |
+| Config | pydantic-settings, grouped in `app/configuration/main.py` |
+| Deploy | Docker Compose locally · Helm chart in `deploy/helm/` |
 | Database | PostgreSQL (via asyncpg) |
 | Frontend | React 18 + TypeScript + Vite + Tailwind, Hebrew RTL |
 | Auth | Google OAuth 2.0 (server-side code flow) → httpOnly JWT cookie |
@@ -26,6 +28,37 @@ cd frontend && npm run dev  # → http://localhost:5173
 
 Full instructions, including how to create the Google OAuth client:
 **[docs/SETUP.md](docs/SETUP.md)**.
+
+## Configuration and data access
+
+All settings are typed and grouped in `app/configuration/main.py`
+(`database`, `security`, `google`, `loyalty`, `admin`). Each group reads
+`POETRY_<GROUP>__<FIELD>` — so Helm sets `POETRY_DB__POOL_SIZE` — while the
+flat legacy names (`DATABASE_URL`, `SECRET_KEY`…) still work as aliases.
+Secrets are `SecretStr`, so they never appear in logs or tracebacks, and
+`database.safe_url` masks the password for startup logging.
+
+Every database access goes through `get_db_handler()` in `app/db.py`. The
+handler owns the engine and session factory, builds the engine lazily from
+`settings.database` (so importing never connects), skips pool arguments for
+SQLite, and exposes `healthcheck()` behind `/api/ready`. FastAPI routes
+depend on `get_db`; scripts use `handler.session()`. Tests swap in their own
+handler with `set_db_handler()`.
+
+## Deploying
+
+```bash
+helm upgrade --install club deploy/helm/poetry-hummus \
+  -f deploy/helm/poetry-hummus/values-prod.yaml \
+  --namespace poetry-hummus --create-namespace
+```
+
+The chart ships API and web deployments, services, ingress, a PVC for
+uploaded photos, and a `pre-upgrade` hook that runs `alembic upgrade head`
+before new pods roll. Point `secrets.existingSecret` at a Secret you manage
+separately; credentials are then referenced by key and never rendered into
+the release. `/api/ready` backs the readiness probe, so a pod that loses its
+database leaves the service.
 
 ## Poet Coins (מטבעות משורר)
 
@@ -82,7 +115,7 @@ Money is stored in agorot (integers) throughout — no floats. Enums are persist
 
 ```bash
 cd backend
-.venv/bin/python -m pytest -q              # 35 unit tests: ledger, menu admin, ordering
+.venv/bin/python -m pytest -q              # 53 unit tests: ledger, menu, ordering, config
 .venv/bin/python scripts/smoke_test.py     # 62 end-to-end API checks
 cd ../frontend && npm run typecheck && npm run build
 ```

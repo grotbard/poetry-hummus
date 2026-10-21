@@ -9,7 +9,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import settings
+from ..configuration import settings
 from ..db import get_db
 from ..models import CoinTxKind, User, UserRole
 from ..schemas import AdminLogin, UserOut
@@ -34,19 +34,19 @@ OAUTH_STATE_COOKIE = "poet_oauth_state"
 @router.get("/config")
 async def auth_config() -> dict:
     """Lets the frontend hide the Google button when OAuth isn't configured."""
-    return {"google_enabled": settings.google_configured}
+    return {"google_enabled": settings.google.configured}
 
 
 @router.get("/google/login")
 async def google_login() -> RedirectResponse:
-    if not settings.google_configured:
+    if not settings.google.configured:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "Google OAuth is not configured on this server",
         )
     state = secrets.token_urlsafe(24)
     params = {
-        "client_id": settings.google_client_id,
+        "client_id": settings.google.client_id,
         "redirect_uri": settings.google_redirect_uri,
         "response_type": "code",
         "scope": "openid email profile",
@@ -81,7 +81,7 @@ async def _verify_google_id_token(id_token: str) -> dict:
             id_token,
             public_key,
             algorithms=["RS256"],
-            audience=settings.google_client_id,
+            audience=settings.google.client_id,
             issuer=["https://accounts.google.com", "accounts.google.com"],
         )
     except (StopIteration, KeyError, jwt.PyJWTError) as exc:
@@ -112,8 +112,8 @@ async def google_callback(
             GOOGLE_TOKEN_URL,
             data={
                 "code": code,
-                "client_id": settings.google_client_id,
-                "client_secret": settings.google_client_secret,
+                "client_id": settings.google.client_id,
+                "client_secret": settings.google.client_secret.get_secret_value(),
                 "redirect_uri": settings.google_redirect_uri,
                 "grant_type": "authorization_code",
             },
@@ -154,11 +154,11 @@ async def google_callback(
         )
         db.add(user)
         await db.flush()
-        if settings.signup_bonus_coins:
+        if settings.loyalty.signup_bonus_coins:
             await record_coins(
                 db,
                 user,
-                settings.signup_bonus_coins,
+                settings.loyalty.signup_bonus_coins,
                 CoinTxKind.signup_bonus,
                 reason="בונוס הרשמה למועדון",
             )

@@ -7,7 +7,7 @@ shakshuka, malabi); prices are representative and editable from the admin UI.
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .config import settings
+from .configuration import settings
 from .models import MenuCategory, MenuItem, Reward, User, UserRole
 from .security import hash_password
 
@@ -117,8 +117,8 @@ async def seed_all(db: AsyncSession) -> None:
     if reward_count == 0:
         db.add_all(Reward(**row) for row in REWARDS)
 
-    if settings.bootstrap_admin_email and settings.bootstrap_admin_password:
-        email = settings.bootstrap_admin_email.lower()
+    if settings.admin.configured:
+        email = settings.admin.email.lower()
         existing = (
             await db.execute(select(User).where(User.email == email))
         ).scalar_one_or_none()
@@ -128,11 +128,11 @@ async def seed_all(db: AsyncSession) -> None:
                     email=email,
                     full_name="מנהל המועדון",
                     role=UserRole.admin,
-                    password_hash=hash_password(settings.bootstrap_admin_password),
+                    password_hash=hash_password(settings.admin.password.get_secret_value()),
                 )
             )
         elif existing.role is not UserRole.admin:
             existing.role = UserRole.admin
-            existing.password_hash = hash_password(settings.bootstrap_admin_password)
+            existing.password_hash = hash_password(settings.admin.password.get_secret_value())
 
     await db.commit()

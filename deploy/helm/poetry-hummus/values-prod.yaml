@@ -1,0 +1,43 @@
+# Production overrides.
+#   helm upgrade --install club deploy/helm/poetry-hummus \
+#     -f deploy/helm/poetry-hummus/values-prod.yaml \
+#     --namespace poetry-hummus --create-namespace
+#
+# Credentials come from a Secret managed outside Helm. Create it once with:
+#   kubectl create secret generic poetry-hummus-secrets \
+#     --from-literal=SECRET_KEY="$(python -c 'import secrets;print(secrets.token_urlsafe(64))')" \
+#     --from-literal=DATABASE_PASSWORD='…' \
+#     --from-literal=GOOGLE_CLIENT_ID='…apps.googleusercontent.com' \
+#     --from-literal=GOOGLE_CLIENT_SECRET='GOCSPX-…' \
+#     --from-literal=BOOTSTRAP_ADMIN_EMAIL='admin@hummushameshorer.com' \
+#     --from-literal=BOOTSTRAP_ADMIN_PASSWORD='…'
+
+secrets:
+  existingSecret: poetry-hummus-secrets
+
+replicaCount:
+  api: 3
+  web: 2
+
+config:
+  appEnv: production
+  frontendUrl: https://club.hummushameshorer.com
+  publicApiUrl: https://api.hummushameshorer.com
+  database:
+    host: poetry-hummus-postgresql.databases.svc.cluster.local
+    name: poetry_hummus
+    user: poet
+    sslMode: require
+    poolSize: 15
+    maxOverflow: 25
+
+media:
+  persistence:
+    enabled: true
+    size: 20Gi
+    accessMode: ReadWriteMany
+
+resources:
+  api:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits:   { cpu: 2,    memory: 1Gi }

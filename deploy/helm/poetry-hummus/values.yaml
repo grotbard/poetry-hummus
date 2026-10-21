@@ -1,0 +1,143 @@
+# Default values for the Poetry Hummus club app.
+# Override per environment with `-f values-prod.yaml`.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  api:
+    repository: ghcr.io/grotbard/poetry-hummus-api
+    tag: ""            # defaults to .Chart.AppVersion
+    pullPolicy: IfNotPresent
+  web:
+    repository: ghcr.io/grotbard/poetry-hummus-web
+    tag: ""
+    pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+replicaCount:
+  api: 2
+  web: 2
+
+# ---------------------------------------------------------------------------
+# Application configuration.
+#
+# Each key below maps to a POETRY_* environment variable read by
+# app/configuration/main.py. Secrets are NOT set here — see `secrets`.
+# ---------------------------------------------------------------------------
+config:
+  appEnv: production
+  frontendUrl: https://club.hummushameshorer.com
+  publicApiUrl: https://api.hummushameshorer.com
+
+  database:
+    # Host/port/name are templated into POETRY_DB__URL; the password comes
+    # from the secret below so it never appears in values or in `helm get`.
+    host: poetry-hummus-postgresql
+    port: 5432
+    name: poetry_hummus
+    user: poet
+    sslMode: require
+    poolSize: 10
+    maxOverflow: 20
+    poolTimeoutSeconds: 30
+    poolRecycleSeconds: 1800
+    poolPrePing: true
+    echoSql: false
+
+  loyalty:
+    coinsPerShekel: 1
+    signupBonusCoins: 20
+
+# ---------------------------------------------------------------------------
+# Secrets.
+#
+# Preferred: set `existingSecret` to a Secret you manage out of band (sealed
+# secrets, External Secrets, SOPS…). The chart then only references it.
+#
+# `values` is a convenience for non-production clusters; anything placed
+# there lands in the release manifest, so do not use it for real credentials.
+# ---------------------------------------------------------------------------
+secrets:
+  existingSecret: ""     # e.g. poetry-hummus-secrets
+  keys:
+    secretKey: SECRET_KEY
+    databasePassword: DATABASE_PASSWORD
+    googleClientId: GOOGLE_CLIENT_ID
+    googleClientSecret: GOOGLE_CLIENT_SECRET
+    adminEmail: BOOTSTRAP_ADMIN_EMAIL
+    adminPassword: BOOTSTRAP_ADMIN_PASSWORD
+  values:
+    secretKey: ""
+    databasePassword: ""
+    googleClientId: ""
+    googleClientSecret: ""
+    adminEmail: ""
+    adminPassword: ""
+
+# Uploaded menu photos. Without persistence they vanish on every restart.
+media:
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: ""
+    accessMode: ReadWriteMany
+  mountPath: /app/media
+
+service:
+  api:
+    type: ClusterIP
+    port: 8000
+  web:
+    type: ClusterIP
+    port: 80
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: 8m
+  hosts:
+    - host: club.hummushameshorer.com
+      service: web
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: api.hummushameshorer.com
+      service: api
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: poetry-hummus-tls
+      hosts:
+        - club.hummushameshorer.com
+        - api.hummushameshorer.com
+
+resources:
+  api:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: 1,    memory: 512Mi }
+  web:
+    requests: { cpu: 20m,  memory: 64Mi }
+    limits:   { cpu: 200m, memory: 128Mi }
+
+# Runs `alembic upgrade head` before each release.
+migrations:
+  enabled: true
+  backoffLimit: 3
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop: ["ALL"]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

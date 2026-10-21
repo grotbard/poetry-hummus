@@ -65,13 +65,13 @@ async def list_rewards(db: AsyncSession = Depends(get_db)) -> list[Reward]:
 
 @router.get("/coins/rules")
 async def coin_rules() -> dict:
-    from ..config import settings
+    from ..configuration import settings
 
     return {
-        "coins_per_shekel": settings.coins_per_shekel,
+        "coins_per_shekel": settings.loyalty.coins_per_shekel,
         "agorot_per_coin": AGOROT_PER_COIN,
         "max_redeem_fraction": MAX_REDEEM_FRACTION,
-        "signup_bonus_coins": settings.signup_bonus_coins,
+        "signup_bonus_coins": settings.loyalty.signup_bonus_coins,
     }
 
 

@@ -21,8 +21,8 @@ os.environ.setdefault("BOOTSTRAP_ADMIN_PASSWORD", "smoke-admin-pw")
 
 import httpx  # noqa: E402
 
-from app.config import settings  # noqa: E402
-from app.db import SessionLocal, engine  # noqa: E402
+from app.configuration import settings  # noqa: E402
+from app.db import get_db_handler  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Base, CoinTxKind, User, UserRole  # noqa: E402
 from app.security import create_session_token  # noqa: E402
@@ -39,16 +39,17 @@ def check(label: str, condition: bool, detail: str = "") -> None:
 
 
 async def main() -> int:
-    print(f"\nDatabase: {settings.database_url}\n")
+    handler = get_db_handler()
+    print(f"\nDatabase: {handler.config.safe_url}\n")
 
-    async with engine.begin() as conn:
+    async with handler.engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
-    async with SessionLocal() as db:
+    async with handler.session() as db:
         await seed_all(db)
 
     # Create a member directly; the Google flow can't run headless.
-    async with SessionLocal() as db:
+    async with handler.session() as db:
         member = User(
             email="poet@example.com",
             full_name="בועז המשורר",
@@ -109,8 +110,8 @@ async def main() -> int:
             json={"email": "admin@hummushameshorer.com", "password": "smoke-admin-pw"},
         )
         check("bootstrap admin can log in", r.status_code == 200, r.text[:120])
-        admin_cookie = {settings.session_cookie_name: r.cookies.get(settings.session_cookie_name, "")}
-        check("admin login sets session cookie", bool(admin_cookie[settings.session_cookie_name]))
+        admin_cookie = {settings.security.session_cookie_name: r.cookies.get(settings.security.session_cookie_name, "")}
+        check("admin login sets session cookie", bool(admin_cookie[settings.security.session_cookie_name]))
         # httpx keeps a cookie jar; left in place it would attach the admin
         # session to member requests, which take cookie over Bearer.
         client.cookies.clear()
@@ -306,7 +307,7 @@ async def main() -> int:
         await client.post(f"/api/admin/users/{member_id}/toggle-active", cookies=admin_cookie)
 
         print("\nLedger integrity")
-        async with SessionLocal() as db:
+        async with handler.session() as db:
             from sqlalchemy import func, select
             from app.models import CoinTransaction
 
@@ -321,7 +322,7 @@ async def main() -> int:
             check("ledger sum == cached balance", ledger == cached, f"{ledger} vs {cached}")
             check("balance matches last admin credit", cached == credited, f"{cached} vs {credited}")
 
-    await engine.dispose()
+    await handler.dispose()
 
     print(f"\n{'─' * 54}")
     print(f"  passed: {len(PASS)}   failed: {len(FAIL)}")

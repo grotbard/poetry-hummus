@@ -121,3 +121,59 @@ cd backend && .venv/bin/python scripts/seed_demo.py
 (`menu_categories.sort_order` ו-`menu_items.sort_order`) ולא בקוד.
 
 מנה שהקטגוריה שלה אינה מוגדרת בטבלת הקטגוריות תוצג בסוף, ולא תיעלם.
+
+## 12. קונפיגורציה וגישה לבסיס הנתונים
+
+ההגדרות מרוכזות ב-`backend/app/configuration/main.py` ומחולקות לקבוצות:
+`database`, `security`, `google`, `loyalty`, `admin`.
+
+כל שדה נקרא ממשתנה סביבה בתבנית `POETRY_<קבוצה>__<שדה>`, למשל:
+
+```bash
+POETRY_DB__URL=postgresql+asyncpg://poet:pw@db:5432/poetry_hummus
+POETRY_DB__POOL_SIZE=15
+POETRY_SECURITY__SECRET_KEY=...
+POETRY_GOOGLE__CLIENT_ID=...
+```
+
+השמות הישנים (`DATABASE_URL`, `SECRET_KEY`, `GOOGLE_CLIENT_ID`…) ממשיכים לעבוד
+כ-aliases, כך ש-`.env` קיים לא נשבר.
+
+סודות מוגדרים כ-`SecretStr` ולכן אינם נחשפים בלוגים. בעליית השרת נרשמת כתובת
+בסיס הנתונים עם סיסמה ממוסכת (`database.safe_url`).
+
+**גישה לבסיס הנתונים** עוברת כולה דרך `get_db_handler()` ב-`app/db.py`:
+
+- ב-FastAPI: `db: AsyncSession = Depends(get_db)`
+- בסקריפטים: `async with get_db_handler().session() as db:`
+- בבדיקות: `set_db_handler(...)` מחליף את ה-handler בבסיס נתונים זמני
+
+ה-engine נבנה בעצלתיים, כך שייבוא המודול לעולם לא פותח חיבור.
+
+## 13. פריסה ל-Kubernetes (Helm)
+
+```bash
+# יצירת הסוד פעם אחת, מחוץ ל-Helm
+kubectl create secret generic poetry-hummus-secrets \
+  --from-literal=SECRET_KEY="$(python3 -c 'import secrets;print(secrets.token_urlsafe(64))')" \
+  --from-literal=DATABASE_PASSWORD='...' \
+  --from-literal=GOOGLE_CLIENT_ID='...' \
+  --from-literal=GOOGLE_CLIENT_SECRET='...' \
+  --from-literal=BOOTSTRAP_ADMIN_EMAIL='admin@hummushameshorer.com' \
+  --from-literal=BOOTSTRAP_ADMIN_PASSWORD='...'
+
+helm upgrade --install club deploy/helm/poetry-hummus \
+  -f deploy/helm/poetry-hummus/values-prod.yaml \
+  --namespace poetry-hummus --create-namespace
+```
+
+הצ׳ארט כולל: deployments ל-API ול-web, services, ingress עם TLS,
+PVC לתמונות המנות, ו-Job מסוג `pre-upgrade` שמריץ `alembic upgrade head`
+לפני שה-pods החדשים עולים.
+
+- `secrets.existingSecret` — מומלץ בייצור; הסודות נקראים לפי מפתח ואינם
+  נכתבים ל-release.
+- `secrets.values` — נוחות לסביבות בדיקה בלבד (נשמר ב-manifest).
+- `/api/ready` מחזיר 503 כשבסיס הנתונים אינו זמין, ומשמש כ-readiness probe.
+- אחסון התמונות דורש `ReadWriteMany`. עם storage class מסוג `ReadWriteOnce`
+  יש להגביל ל-replica אחת או לעבור ל-S3.
