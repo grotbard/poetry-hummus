@@ -221,6 +221,13 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("static_dir", "POETRY_STATIC_DIR"),
     )
+    # Run Alembic migrations during startup. For hosts without a pre-deploy
+    # hook (Render's free plan); prefer a real pre-deploy step where available,
+    # since this serialises behind the first boot of each instance.
+    run_migrations: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("run_migrations", "POETRY_RUN_MIGRATIONS"),
+    )
     # Directory for uploaded menu photos; a mounted disk in production.
     media_dir: Path = Field(
         default=Path(__file__).resolve().parents[2] / "media",

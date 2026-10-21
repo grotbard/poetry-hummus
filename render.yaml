@@ -7,6 +7,10 @@
 #        https://<your-service>.onrender.com/api/auth/google/callback
 #      and update POETRY_PUBLIC_API_URL / POETRY_FRONTEND_URL to that host.
 #
+# This blueprint uses only free resources, so no card is needed. The trade-offs:
+# the instance sleeps after 15 minutes idle (~30s to wake), uploaded menu
+# photos do not survive a restart, and the free database expires after 90 days.
+#
 # One web service serves both the API and the SPA, so the session cookie is
 # same-origin and no CORS is involved.
 
@@ -16,24 +20,37 @@ databases:
     user: poet
     plan: free          # upgrade to starter+ for backups and no 90-day expiry
     postgresMajorVersion: "16"
+    # MUST match the web service's region: Render's internal database
+    # hostnames resolve only within a region, and the default is Oregon.
+    region: frankfurt
 
 services:
   - type: web
     name: poetry-hummus
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: starter       # free tier sleeps and has no persistent disk
+    plan: free          # no card required; see the trade-offs below
     region: frankfurt   # closest to Tel Aviv
     healthCheckPath: /api/health
-    # Applies migrations before the new instance takes traffic.
-    preDeployCommand: alembic upgrade head
-    disk:
-      name: media
-      mountPath: /app/media
-      sizeGB: 1
+    # NOTE: preDeployCommand is a paid feature, so migrations run at startup
+    # instead — see the POETRY_RUN_MIGRATIONS env var below.
+    #
+    # NOTE: the free plan has no persistent disk, so uploaded menu photos live
+    # in the container filesystem and are lost whenever the instance restarts
+    # (which includes waking from sleep). Menu items fall back to their emoji.
+    # To keep photos, move to a paid plan and restore:
+    #     plan: starter
+    #     preDeployCommand: alembic upgrade head
+    #     disk:
+    #       name: media
+    #       mountPath: /app/media
+    #       sizeGB: 1
     envVars:
       - key: POETRY_APP_ENV
         value: production
+      # Stands in for preDeployCommand, which the free plan does not offer.
+      - key: POETRY_RUN_MIGRATIONS
+        value: "true"
       - key: POETRY_DB__URL
         fromDatabase:
           name: poetry-hummus-db

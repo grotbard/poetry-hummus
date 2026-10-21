@@ -17,13 +17,35 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("poetry-hummus")
 
 
+async def _run_migrations() -> None:
+    """Apply Alembic migrations in-process.
+
+    Only for platforms with no pre-deploy hook (Render's free plan). Alembic
+    is synchronous, so it runs in a worker thread to keep the event loop free.
+    """
+    import asyncio
+    from alembic import command
+    from alembic.config import Config
+
+    def upgrade() -> None:
+        cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+        cfg.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "alembic"))
+        command.upgrade(cfg, "head")
+
+    log.info("Applying database migrations")
+    await asyncio.to_thread(upgrade)
+    log.info("Migrations up to date")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     handler = get_db_handler()
     log.info("Connecting to %s", handler.config.safe_url)
 
-    # In development, create tables directly; production uses Alembic migrations.
-    if not settings.is_production:
+    if settings.run_migrations:
+        await _run_migrations()
+    elif not settings.is_production:
+        # In development, create tables directly; production migrates.
         async with handler.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
     async with handler.session() as db:

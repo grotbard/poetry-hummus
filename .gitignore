@@ -13,6 +13,10 @@ dist/
 .env
 .env.local
 *.pem
+# Editor swap files — a swap of .env holds the same secrets
+*.swp
+*.swo
+*~
 
 # OS / editors
 .DS_Store

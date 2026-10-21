@@ -63,8 +63,10 @@ handler with `set_db_handler()`.
 **Render** (simplest): the repo ships `render.yaml` and a root `Dockerfile`
 that builds the SPA into the API image, so one service serves both from a
 single origin — necessary because separate `*.onrender.com` subdomains are
-different sites and would drop the `SameSite=Lax` session cookie. Walkthrough:
-[docs/DEPLOY-RENDER.md](docs/DEPLOY-RENDER.md).
+different sites and would drop the `SameSite=Lax` session cookie. The
+blueprint uses only free resources, so no card is needed; the trade-off is
+that the instance sleeps when idle and uploaded photos do not survive a
+restart. Walkthrough: [docs/DEPLOY-RENDER.md](docs/DEPLOY-RENDER.md).
 
 **Kubernetes**:
 
