@@ -48,6 +48,7 @@ export const COIN_KIND_LABELS: Record<string, string> = {
   signup_bonus: 'בונוס הרשמה',
   admin_adjust: 'עדכון מנהל',
   refund: 'החזר על ביטול',
+  expired: 'פקיעת תוקף',
 }
 
 export const ACTION_LABELS: Record<string, string> = {
@@ -60,4 +61,6 @@ export const ACTION_LABELS: Record<string, string> = {
   'reward.redeemed': 'מימוש הטבה',
   'admin.coins_adjusted': 'מנהל עדכן מטבעות',
   'admin.user_toggled': 'מנהל שינה סטטוס חבר',
+  'order.feedback_submitted': 'דירוג הזמנה',
+  'coins.expired': 'מטבעות פקעו',
 }

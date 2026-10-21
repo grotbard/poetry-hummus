@@ -1,7 +1,13 @@
 export type UserRole = 'member' | 'admin'
 export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'collected' | 'cancelled'
 export type PaymentStatus = 'unpaid' | 'paid' | 'refunded'
-export type CoinTxKind = 'earn' | 'redeem' | 'signup_bonus' | 'admin_adjust' | 'refund'
+export type CoinTxKind =
+  | 'earn'
+  | 'redeem'
+  | 'signup_bonus'
+  | 'admin_adjust'
+  | 'refund'
+  | 'expired'
 
 export interface User {
   id: number
@@ -28,6 +34,7 @@ export interface MenuItem {
   image_url: string | null
   is_available: boolean
   is_vegan: boolean
+  allows_egg: boolean
   sort_order: number
 }
 
@@ -44,6 +51,8 @@ export interface OrderItem {
   name_snapshot: string
   unit_price_agorot: number
   quantity: number
+  eggs: number
+  egg_price_agorot: number
   line_total_agorot: number
 }
 
@@ -57,6 +66,10 @@ export interface Order {
   total_agorot: number
   coins_spent: number
   coins_earned: number
+  coins_pending: number
+  feedback_food: number | null
+  feedback_service: number | null
+  feedback_at: string | null
   note: string
   created_at: string
   collected_at: string | null
@@ -71,6 +84,7 @@ export interface CoinTransaction {
   reason: string
   order_id: number | null
   created_at: string
+  expires_at: string | null
 }
 
 export interface Reward {
@@ -87,6 +101,18 @@ export interface CoinRules {
   agorot_per_coin: number
   max_redeem_fraction: number
   signup_bonus_coins: number
+  earn_min_order_agorot: number
+  earn_percent: number
+  feedback_window_hours: number
+  coin_expiry_days: number
+  egg_price_agorot: number
+}
+
+export interface FeedbackResult {
+  ok: boolean
+  coins_granted: number
+  balance: number
+  in_time: boolean
 }
 
 export interface AdminStats {

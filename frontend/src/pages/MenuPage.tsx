@@ -6,7 +6,15 @@ import { CATEGORY_LABELS, shekels } from '../lib/format'
 import type { CoinRules, MenuCategory, MenuItem, Order } from '../lib/types'
 import { Chickpea, CoinAmount } from '../components/Chickpea'
 
-type Cart = Record<number, number>
+/** Cart lines are keyed by dish *and* egg count, so "+1 egg" is its own line. */
+interface CartLine {
+  menuItemId: number
+  eggs: number
+  quantity: number
+}
+type Cart = Record<string, CartLine>
+
+const lineKey = (menuItemId: number, eggs: number) => `${menuItemId}:${eggs}`
 
 export function MenuPage() {
   const { user, refresh } = useAuth()
@@ -47,13 +55,15 @@ export function MenuPage() {
     return (key: string) => byKey.get(key) ?? CATEGORY_LABELS[key] ?? key
   }, [categories])
 
+  const eggPrice = rules?.egg_price_agorot ?? 300
+
   const subtotal = useMemo(
     () =>
-      Object.entries(cart).reduce(
-        (sum, [id, qty]) => sum + (byId.get(Number(id))?.price_agorot ?? 0) * qty,
-        0,
-      ),
-    [cart, byId],
+      Object.values(cart).reduce((sum, line) => {
+        const unit = byId.get(line.menuItemId)?.price_agorot ?? 0
+        return sum + (unit + line.eggs * eggPrice) * line.quantity
+      }, 0),
+    [cart, byId, eggPrice],
   )
 
   // Mirror of the server's cap: half the bill, and never more than held.
@@ -69,15 +79,20 @@ export function MenuPage() {
   const effectiveRedeem = Math.min(redeem, sliderMax)
   const discount = effectiveRedeem * (rules?.agorot_per_coin ?? 10)
   const total = Math.max(0, subtotal - discount)
-  const willEarn = Math.floor(total / 100) * (rules?.coins_per_shekel ?? 1)
-  const itemCount = Object.values(cart).reduce((a, b) => a + b, 0)
+  // Mirrors coins_for_amount on the server: nothing below the minimum, then
+  // a percentage of what is actually paid.
+  const minOrder = rules?.earn_min_order_agorot ?? 4500
+  const willEarn =
+    total < minOrder ? 0 : Math.floor((total * (rules?.earn_percent ?? 5)) / 100 / 100)
+  const itemCount = Object.values(cart).reduce((a, line) => a + line.quantity, 0)
 
   const placeOrder = useMutation({
     mutationFn: () =>
       api.post<Order>('/api/orders', {
-        items: Object.entries(cart).map(([id, qty]) => ({
-          menu_item_id: Number(id),
-          quantity: qty,
+        items: Object.values(cart).map((line) => ({
+          menu_item_id: line.menuItemId,
+          quantity: line.quantity,
+          eggs: line.eggs,
         })),
         note,
         redeem_coins: effectiveRedeem,
@@ -93,12 +108,32 @@ export function MenuPage() {
     },
   })
 
-  function add(id: number, delta: number) {
+  function add(menuItemId: number, delta: number, eggs = 0) {
     setCart((prev) => {
       const next = { ...prev }
-      const qty = (next[id] ?? 0) + delta
-      if (qty <= 0) delete next[id]
-      else next[id] = Math.min(qty, 50)
+      const key = lineKey(menuItemId, eggs)
+      const quantity = (next[key]?.quantity ?? 0) + delta
+      if (quantity <= 0) delete next[key]
+      else next[key] = { menuItemId, eggs, quantity: Math.min(quantity, 50) }
+      return next
+    })
+  }
+
+  /** Move a line to a different egg count, merging if that line exists. */
+  function setEggs(menuItemId: number, fromEggs: number, toEggs: number) {
+    if (toEggs < 0 || toEggs > 10) return
+    setCart((prev) => {
+      const from = prev[lineKey(menuItemId, fromEggs)]
+      if (!from) return prev
+      const next = { ...prev }
+      delete next[lineKey(menuItemId, fromEggs)]
+      const toKey = lineKey(menuItemId, toEggs)
+      const existing = next[toKey]?.quantity ?? 0
+      next[toKey] = {
+        menuItemId,
+        eggs: toEggs,
+        quantity: Math.min(existing + from.quantity, 50),
+      }
       return next
     })
   }
@@ -115,8 +150,7 @@ export function MenuPage() {
           לתשלום: <strong>{shekels(placed.total_agorot)}</strong>
         </p>
         <p className="mt-2 text-sm text-ink/70">
-          תקבלו <CoinAmount value={Math.floor(placed.total_agorot / 100)} size="sm" /> מטבעות
-          כשההזמנה תיאסף
+          אחרי האיסוף תוכלו לדרג את ההזמנה ולקבל את מטבעות המשורר
         </p>
         <button onClick={() => setPlaced(null)} className="btn-primary mt-6">
           להזמנה נוספת
@@ -172,7 +206,7 @@ export function MenuPage() {
                       <span className="font-bold text-wine">
                         {shekels(item.price_agorot)}
                       </span>
-                      {cart[item.id] ? (
+                      {cart[lineKey(item.id, 0)] ? (
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => add(item.id, -1)}
@@ -182,7 +216,7 @@ export function MenuPage() {
                             −
                           </button>
                           <span className="w-6 text-center font-bold tabular-nums">
-                            {cart[item.id]}
+                            {cart[lineKey(item.id, 0)].quantity}
                           </span>
                           <button
                             onClick={() => add(item.id, 1)}
@@ -217,17 +251,47 @@ export function MenuPage() {
           ) : (
             <>
               <ul className="space-y-2 text-sm">
-                {Object.entries(cart).map(([id, qty]) => {
-                  const item = byId.get(Number(id))
+                {Object.entries(cart).map(([key, line]) => {
+                  const item = byId.get(line.menuItemId)
                   if (!item) return null
+                  const lineTotal =
+                    (item.price_agorot + line.eggs * eggPrice) * line.quantity
                   return (
-                    <li key={id} className="flex justify-between gap-2">
-                      <span className="truncate">
-                        {qty} × {item.name_he}
-                      </span>
-                      <span className="tabular-nums shrink-0">
-                        {shekels(item.price_agorot * qty)}
-                      </span>
+                    <li key={key}>
+                      <div className="flex justify-between gap-2">
+                        <span className="truncate">
+                          {line.quantity} × {item.name_he}
+                        </span>
+                        <span className="shrink-0 tabular-nums">
+                          {shekels(lineTotal)}
+                        </span>
+                      </div>
+                      {item.allows_egg && (
+                        <div className="mt-1 flex items-center gap-2 text-xs text-ink/55">
+                          <span>🥚 ביצה</span>
+                          <button
+                            onClick={() => setEggs(item.id, line.eggs, line.eggs - 1)}
+                            disabled={line.eggs === 0}
+                            className="h-5 w-5 rounded-full bg-ink/10 leading-none hover:bg-ink/20 disabled:opacity-30"
+                            aria-label="פחות ביצים"
+                          >
+                            −
+                          </button>
+                          <span className="w-4 text-center font-bold tabular-nums">
+                            {line.eggs}
+                          </span>
+                          <button
+                            onClick={() => setEggs(item.id, line.eggs, line.eggs + 1)}
+                            className="h-5 w-5 rounded-full bg-wine text-hummus-light leading-none hover:bg-wine-light"
+                            aria-label="עוד ביצה"
+                          >
+                            +
+                          </button>
+                          <span className="text-ink/40">
+                            {shekels(eggPrice)} ליחידה
+                          </span>
+                        </div>
+                      )}
                     </li>
                   )
                 })}
@@ -257,7 +321,7 @@ export function MenuPage() {
                     className="mt-2 w-full accent-wine"
                   />
                   <p className="mt-1 text-xs text-ink/55">
-                    עד {sliderMax} מטבעות בהזמנה זו (מחצית מהחשבון)
+                    עד {sliderMax} מטבעות בהזמנה זו
                   </p>
                 </div>
               )}
@@ -277,12 +341,18 @@ export function MenuPage() {
                   <dt>לתשלום</dt>
                   <dd className="tabular-nums">{shekels(total)}</dd>
                 </div>
-                <div className="flex justify-between pt-1 text-xs text-ink/55">
-                  <dt>תצברו בהזמנה</dt>
-                  <dd>
-                    <CoinAmount value={willEarn} size="sm" />
-                  </dd>
-                </div>
+                {willEarn > 0 ? (
+                  <div className="flex justify-between pt-1 text-xs text-ink/55">
+                    <dt>תצברו בהזמנה</dt>
+                    <dd>
+                      <CoinAmount value={willEarn} size="sm" />
+                    </dd>
+                  </div>
+                ) : (
+                  <p className="pt-1 text-xs text-ink/45">
+                    הזמנות מעל {shekels(minOrder)} מזכות במטבעות
+                  </p>
+                )}
               </dl>
 
               {placeOrder.isError && (

@@ -15,6 +15,8 @@ from ..models import (
 )
 from ..schemas import (
     CoinTransactionOut,
+    FeedbackIn,
+    FeedbackResult,
     MenuCategoryOut,
     MenuItemOut,
     OrderCreate,
@@ -25,9 +27,12 @@ from ..schemas import (
 )
 from ..security import get_current_user
 from ..services import (
-    AGOROT_PER_COIN,
+    agorot_per_coin,
     MAX_REDEEM_FRACTION,
     create_order,
+    expire_coins,
+    feedback_window_open,
+    submit_feedback,
     max_redeemable_coins,
     redeem_reward,
 )
@@ -69,9 +74,14 @@ async def coin_rules() -> dict:
 
     return {
         "coins_per_shekel": settings.loyalty.coins_per_shekel,
-        "agorot_per_coin": AGOROT_PER_COIN,
+        "coin_expiry_days": settings.loyalty.coin_expiry_days,
+        "agorot_per_coin": agorot_per_coin(),
         "max_redeem_fraction": MAX_REDEEM_FRACTION,
         "signup_bonus_coins": settings.loyalty.signup_bonus_coins,
+        "earn_min_order_agorot": settings.loyalty.earn_min_order_agorot,
+        "earn_percent": settings.loyalty.earn_percent,
+        "feedback_window_hours": settings.loyalty.feedback_window_hours,
+        "egg_price_agorot": settings.menu.egg_price_agorot,
     }
 
 
@@ -113,7 +123,7 @@ async def place_order(
     order = await create_order(
         db,
         user,
-        [(line.menu_item_id, line.quantity) for line in payload.items],
+        [(line.menu_item_id, line.quantity, line.eggs) for line in payload.items],
         payload.note,
         payload.redeem_coins,
     )
@@ -157,11 +167,35 @@ async def cancel_my_order(
     return order
 
 
+@router.post("/orders/{order_id}/feedback", response_model=FeedbackResult)
+async def submit_order_feedback(
+    order_id: int,
+    payload: FeedbackIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> FeedbackResult:
+    """Rate a collected order, which releases the coins held for it."""
+    order = await db.get(Order, order_id)
+    if order is None or order.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
+
+    in_time = feedback_window_open(order)
+    granted = await submit_feedback(db, order, user, payload.food, payload.service)
+    await db.commit()
+    await db.refresh(user)
+    return FeedbackResult(
+        ok=True, coins_granted=granted, balance=user.coin_balance, in_time=in_time
+    )
+
+
 @router.get("/coins/transactions", response_model=list[CoinTransactionOut])
 async def my_coin_history(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[CoinTransaction]:
+    # Reading the history is a natural moment to retire lapsed coins.
+    if await expire_coins(db, user):
+        await db.commit()
     result = await db.execute(
         select(CoinTransaction)
         .where(CoinTransaction.user_id == user.id)
@@ -175,12 +209,15 @@ async def my_coin_history(
 async def redeemable_preview(
     subtotal_agorot: int = 0,
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
+    if await expire_coins(db, user):
+        await db.commit()
     allowed = max_redeemable_coins(subtotal_agorot, user.coin_balance)
     return {
         "balance": user.coin_balance,
         "max_coins": allowed,
-        "max_discount_agorot": allowed * AGOROT_PER_COIN,
+        "max_discount_agorot": allowed * agorot_per_coin(),
     }
 
 

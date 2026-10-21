@@ -51,6 +51,7 @@ class MenuItemOut(ORMModel):
     image_url: str | None
     is_available: bool
     is_vegan: bool
+    allows_egg: bool
     sort_order: int
 
 
@@ -76,6 +77,7 @@ class MenuItemIn(BaseModel):
     emoji: str = ""
     is_available: bool = True
     is_vegan: bool = False
+    allows_egg: bool = False
     sort_order: int = 100
 
 
@@ -89,6 +91,7 @@ class MenuItemPatch(BaseModel):
     image_url: str | None = None
     is_available: bool | None = None
     is_vegan: bool | None = None
+    allows_egg: bool | None = None
     sort_order: int | None = None
 
 
@@ -98,6 +101,8 @@ class MenuItemPatch(BaseModel):
 class CartLine(BaseModel):
     menu_item_id: int
     quantity: int = Field(ge=1, le=50)
+    # Extra hard-boiled eggs on each plate of this line.
+    eggs: int = Field(default=0, ge=0, le=10)
 
 
 class OrderCreate(BaseModel):
@@ -113,6 +118,8 @@ class OrderItemOut(ORMModel):
     name_snapshot: str
     unit_price_agorot: int
     quantity: int
+    eggs: int
+    egg_price_agorot: int
     line_total_agorot: int
 
 
@@ -126,6 +133,10 @@ class OrderOut(ORMModel):
     total_agorot: int
     coins_spent: int
     coins_earned: int
+    coins_pending: int
+    feedback_food: int | None
+    feedback_service: int | None
+    feedback_at: datetime | None
     note: str
     created_at: datetime
     collected_at: datetime | None
@@ -134,6 +145,20 @@ class OrderOut(ORMModel):
 
 class OrderStatusUpdate(BaseModel):
     status: OrderStatus
+
+
+class FeedbackIn(BaseModel):
+    """The whole survey: two 1-5 ratings."""
+
+    food: int = Field(ge=1, le=5, description="How was the hummus?")
+    service: int = Field(ge=1, le=5, description="How was the service?")
+
+
+class FeedbackResult(BaseModel):
+    ok: bool
+    coins_granted: int
+    balance: int
+    in_time: bool
 
 
 # ---------- Coins / rewards ----------
@@ -147,6 +172,7 @@ class CoinTransactionOut(ORMModel):
     reason: str
     order_id: int | None
     created_at: datetime
+    expires_at: datetime | None
 
 
 class RewardOut(ORMModel):

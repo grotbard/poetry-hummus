@@ -6,6 +6,7 @@ from datetime import datetime
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     Enum,
     ForeignKey,
@@ -53,6 +54,7 @@ class CoinTxKind(str, enum.Enum):
     signup_bonus = "signup_bonus"
     admin_adjust = "admin_adjust"
     refund = "refund"
+    expired = "expired"
 
 
 def _enum(e: type[enum.Enum], name: str) -> Enum:
@@ -125,6 +127,8 @@ class MenuItem(Base):
     image_url: Mapped[str | None] = mapped_column(Text, default=None)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     is_vegan: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Whether a hard-boiled egg can be added to this dish.
+    allows_egg: Mapped[bool] = mapped_column(Boolean, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=100)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -134,6 +138,16 @@ class MenuItem(Base):
 
 class Order(Base):
     __tablename__ = "orders"
+    __table_args__ = (
+        CheckConstraint(
+            "feedback_food IS NULL OR (feedback_food BETWEEN 1 AND 5)",
+            name="ck_orders_feedback_food_range",
+        ),
+        CheckConstraint(
+            "feedback_service IS NULL OR (feedback_service BETWEEN 1 AND 5)",
+            name="ck_orders_feedback_service_range",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     order_number: Mapped[str] = mapped_column(String(20), unique=True, index=True)
@@ -157,6 +171,16 @@ class Order(Base):
     coins_earned: Mapped[int] = mapped_column(Integer, default=0)
     # Guards against awarding earn-coins twice for one order.
     coins_awarded: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Coins held back until the member rates the order. Set when the order is
+    # collected; moved into coins_earned once feedback arrives in time.
+    coins_pending: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Short post-order survey, 1-5 each. Both set together or neither.
+    feedback_food: Mapped[int | None] = mapped_column(Integer, default=None)
+    feedback_service: Mapped[int | None] = mapped_column(Integer, default=None)
+    feedback_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
 
     note: Mapped[str] = mapped_column(Text, default="")
 
@@ -190,6 +214,9 @@ class OrderItem(Base):
     name_snapshot: Mapped[str] = mapped_column(String(200))
     unit_price_agorot: Mapped[int] = mapped_column(Integer)
     quantity: Mapped[int] = mapped_column(Integer, default=1)
+    # Optional extra eggs on this line, priced per egg at order time.
+    eggs: Mapped[int] = mapped_column(Integer, default=0)
+    egg_price_agorot: Mapped[int] = mapped_column(Integer, default=0)
     line_total_agorot: Mapped[int] = mapped_column(Integer)
 
     order: Mapped[Order] = relationship(back_populates="items")
@@ -227,6 +254,13 @@ class CoinTransaction(Base):
     kind: Mapped[CoinTxKind] = mapped_column(_enum(CoinTxKind, "coin_tx_kind"))
     balance_after: Mapped[int] = mapped_column(Integer)
     reason: Mapped[str] = mapped_column(String(300), default="")
+    # Credits expire; debits never do. Null means this row never expires.
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None, index=True
+    )
+    # Credits only: how much of this row has already been spent or expired,
+    # so each credit is retired exactly once (FIFO against the ledger).
+    consumed: Mapped[int] = mapped_column(Integer, default=0)
     created_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), default=None
     )

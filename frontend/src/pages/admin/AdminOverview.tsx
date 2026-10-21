@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import { shekels } from '../../lib/format'
-import type { AdminStats } from '../../lib/types'
+import type { AdminStats, CoinRules } from '../../lib/types'
 import { Chickpea } from '../../components/Chickpea'
 
 function Tile({
@@ -29,6 +29,10 @@ export function AdminOverview() {
     queryKey: ['admin', 'stats'],
     queryFn: () => api.get<AdminStats>('/api/admin/stats'),
     refetchInterval: 30_000,
+  })
+  const { data: rules } = useQuery({
+    queryKey: ['coin-rules'],
+    queryFn: () => api.get<CoinRules>('/api/coins/rules'),
   })
 
   if (isLoading || !data) return <p className="text-ink/50">טוען נתונים…</p>
@@ -67,7 +71,7 @@ export function AdminOverview() {
               {data.coins_outstanding.toLocaleString('he-IL')}
             </p>
             <p className="mt-1 text-xs text-ink/45">
-              התחייבות: {shekels(data.coins_outstanding * 10)}
+              התחייבות: {shekels(data.coins_outstanding * (rules?.agorot_per_coin ?? 100))}
             </p>
           </div>
           <div>

@@ -119,7 +119,15 @@ export function LoginPage() {
         </div>
 
         <p className="mt-6 text-center text-xs text-ink/45">
-          ביצרון 13, תל אביב · 03-6878635
+          <a
+            href="https://www.google.com/maps/search/?api=1&query=%D7%97%D7%95%D7%9E%D7%95%D7%A1+%D7%94%D7%9E%D7%A9%D7%95%D7%A8%D7%A8+%D7%90%D7%91%D7%9F+%D7%92%D7%91%D7%99%D7%A8%D7%95%D7%9C+8+%D7%AA%D7%9C+%D7%90%D7%91%D7%99%D7%91"
+            target="_blank"
+            rel="noreferrer"
+            className="underline decoration-dotted underline-offset-2 hover:text-wine"
+          >
+            אבן גבירול 8, תל אביב-יפו
+          </a>{' '}
+          · <a href="tel:036878635" className="hover:text-wine">03-6878635</a>
         </p>
       </div>
     </div>

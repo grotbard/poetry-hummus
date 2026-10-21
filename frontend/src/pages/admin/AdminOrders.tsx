@@ -92,6 +92,7 @@ export function AdminOrders() {
               {order.items.map((item) => (
                 <li key={item.id}>
                   {item.quantity} × {item.name_snapshot}
+                  {item.eggs > 0 && <strong> + {item.eggs} ביצה</strong>}
                 </li>
               ))}
             </ul>

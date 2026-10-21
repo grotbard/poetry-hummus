@@ -147,6 +147,15 @@ class GoogleOAuthSettings(BaseSettings):
         return bool(self.client_id and self.client_secret.get_secret_value())
 
 
+class MenuSettings(BaseSettings):
+    """Menu-wide options."""
+
+    model_config = _BASE_CONFIG | SettingsConfigDict(env_prefix="POETRY_MENU__")
+
+    # Cost of adding one hard-boiled egg to a dish, in agorot.
+    egg_price_agorot: int = Field(default=300, ge=0)
+
+
 class LoyaltySettings(BaseSettings):
     """Poet Coin tuning."""
 
@@ -160,7 +169,7 @@ class LoyaltySettings(BaseSettings):
         ),
     )
     signup_bonus_coins: int = Field(
-        default=20,
+        default=5,
         ge=0,
         validation_alias=AliasChoices(
             "signup_bonus_coins",
@@ -168,6 +177,16 @@ class LoyaltySettings(BaseSettings):
             "SIGNUP_BONUS_COINS",
         ),
     )
+    # Orders below this (in agorot, on the amount actually paid) earn nothing.
+    earn_min_order_agorot: int = Field(default=4500, ge=0)
+    # Coins awarded as a percentage of the amount paid.
+    earn_percent: float = Field(default=5.0, ge=0, le=100)
+    # Hours after collection during which feedback can still release the coins.
+    feedback_window_hours: int = Field(default=10, ge=1)
+    # What one coin is worth when redeemed, in agorot. 100 = ₪1 per coin.
+    agorot_per_coin: int = Field(default=100, ge=1)
+    # Coins expire this many days after being earned. 0 disables expiry.
+    coin_expiry_days: int = Field(default=60, ge=0)
 
 
 class AdminBootstrapSettings(BaseSettings):
@@ -238,6 +257,7 @@ class Settings(BaseSettings):
     security: SecuritySettings = Field(default_factory=SecuritySettings)
     google: GoogleOAuthSettings = Field(default_factory=GoogleOAuthSettings)
     loyalty: LoyaltySettings = Field(default_factory=LoyaltySettings)
+    menu: MenuSettings = Field(default_factory=MenuSettings)
     admin: AdminBootstrapSettings = Field(default_factory=AdminBootstrapSettings)
 
     @computed_field

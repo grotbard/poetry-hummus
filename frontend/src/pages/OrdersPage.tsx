@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { dateTime, shekels, STATUS_LABELS, STATUS_STYLES } from '../lib/format'
-import type { Order } from '../lib/types'
+import type { CoinRules, Order } from '../lib/types'
 import { CoinAmount } from '../components/Chickpea'
+import { FeedbackCard } from '../components/FeedbackCard'
 
 export function OrdersPage() {
   const queryClient = useQueryClient()
@@ -15,6 +17,20 @@ export function OrdersPage() {
     // Keep the status fresh while the kitchen works.
     refetchInterval: 20_000,
   })
+  const [justRated, setJustRated] = useState<Set<number>>(new Set())
+
+  const { data: rules } = useQuery({
+    queryKey: ['coin-rules'],
+    queryFn: () => api.get<CoinRules>('/api/coins/rules'),
+  })
+
+  /** Feedback still earns coins for a limited time after collection. */
+  function windowOpen(order: Order): boolean {
+    if (!order.collected_at) return false
+    const hours = rules?.feedback_window_hours ?? 10
+    const deadline = new Date(order.collected_at).getTime() + hours * 3_600_000
+    return Date.now() <= deadline
+  }
 
   const cancel = useMutation({
     mutationFn: (id: number) => api.post<Order>(`/api/orders/${id}/cancel`),
@@ -52,6 +68,9 @@ export function OrdersPage() {
               <li key={item.id} className="flex justify-between gap-2">
                 <span className="truncate">
                   {item.quantity} × {item.name_snapshot}
+                  {item.eggs > 0 && (
+                    <span className="text-ink/50"> · 🥚 ×{item.eggs}</span>
+                  )}
                 </span>
                 <span className="tabular-nums shrink-0 text-ink/60">
                   {shekels(item.line_total_agorot)}
@@ -90,6 +109,15 @@ export function OrdersPage() {
               </button>
             )}
           </footer>
+
+          {order.status === 'collected' &&
+            (!order.feedback_at || justRated.has(order.id)) &&
+            windowOpen(order) && (
+              <FeedbackCard
+                order={order}
+                onRated={() => setJustRated((prev) => new Set(prev).add(order.id))}
+              />
+            )}
         </article>
       ))}
       {cancel.isError && (

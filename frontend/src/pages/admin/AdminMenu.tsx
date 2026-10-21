@@ -165,6 +165,9 @@ export function AdminMenu() {
                 onToggle={() =>
                   patch.mutate({ id: item.id, body: { is_available: !item.is_available } })
                 }
+                onToggleEgg={() =>
+                  patch.mutate({ id: item.id, body: { allows_egg: !item.allows_egg } })
+                }
                 onDelete={() => setConfirmDelete(item)}
               />
             ))}
@@ -244,6 +247,7 @@ function MenuRow({
   onRemoveImage,
   onPrice,
   onToggle,
+  onToggleEgg,
   onDelete,
 }: {
   item: MenuItem
@@ -255,6 +259,7 @@ function MenuRow({
   onRemoveImage: () => void
   onPrice: (agorot: number) => void
   onToggle: () => void
+  onToggleEgg: () => void
   onDelete: () => void
 }) {
   const fileInput = useRef<HTMLInputElement>(null)
@@ -338,6 +343,17 @@ function MenuRow({
       <span className="w-16 shrink-0 text-right text-xs tabular-nums text-ink/45">
         {shekels(item.price_agorot)}
       </span>
+
+      <button
+        onClick={onToggleEgg}
+        disabled={busy}
+        title="האם ניתן להוסיף ביצה למנה"
+        className={`chip shrink-0 !px-3 !py-1 ${
+          item.allows_egg ? 'bg-chickpea/30 text-wine-dark' : 'bg-ink/10 text-ink/40'
+        }`}
+      >
+        🥚 {item.allows_egg ? 'ניתן' : 'לא'}
+      </button>
 
       <button
         onClick={onToggle}

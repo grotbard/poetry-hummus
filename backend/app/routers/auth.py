@@ -20,7 +20,7 @@ from ..security import (
     set_session_cookie,
     verify_password,
 )
-from ..services import log_activity, record_coins
+from ..services import expire_coins, log_activity, record_coins
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -234,5 +234,12 @@ async def logout(response: Response) -> dict:
 
 
 @router.get("/me", response_model=UserOut)
-async def me(user: User = Depends(get_current_user)) -> User:
+async def me(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    # Expiry is applied lazily on read, so no scheduled job is required.
+    if await expire_coins(db, user):
+        await db.commit()
+        await db.refresh(user)
     return user

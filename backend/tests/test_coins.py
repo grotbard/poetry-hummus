@@ -6,8 +6,9 @@ from sqlalchemy import func, select
 
 from app.models import CoinTransaction, CoinTxKind, MenuItem, OrderStatus
 from app.services import (
-    AGOROT_PER_COIN,
+    agorot_per_coin,
     advance_order_status,
+    submit_feedback,
     coins_for_amount,
     create_order,
     max_redeemable_coins,
@@ -36,17 +37,18 @@ async def _ledger_sum(db, user_id: int) -> int:
     ).scalar()
 
 
-def test_coins_for_amount_rounds_down_to_whole_shekels():
-    assert coins_for_amount(4200) == 42
-    assert coins_for_amount(4299) == 42
+def test_coins_for_amount_respects_the_minimum_order():
+    # Full coverage of the percentage rule lives in test_feedback.py.
     assert coins_for_amount(99) == 0
+    assert coins_for_amount(4499) == 0
+    assert coins_for_amount(10000) == 5
 
 
 def test_max_redeemable_is_capped_at_half_the_bill():
-    # 100 ILS bill, huge balance -> at most 50 ILS worth = 500 coins.
-    assert max_redeemable_coins(10_000, 10_000) == 5_000 // AGOROT_PER_COIN
+    # ₪100 bill, huge balance -> at most ₪50 worth of coins.
+    assert max_redeemable_coins(10_000, 10_000) == 5_000 // agorot_per_coin()
     # Limited by what the member actually holds.
-    assert max_redeemable_coins(10_000, 120) == 120
+    assert max_redeemable_coins(10_000, 12) == 12
 
 
 async def test_record_coins_updates_balance_and_ledger(db, member):
@@ -90,10 +92,18 @@ async def test_order_totals_and_earn_on_collection(db, member):
     await advance_order_status(db, order, OrderStatus.collected)
     await db.commit()
 
-    assert order.coins_awarded is True
-    assert order.coins_earned == coins_for_amount(order.total_agorot)
-    assert member.coin_balance == order.coins_earned
+    # Coins are now held until the member rates the order.
+    assert order.coins_awarded is False
+    assert order.coins_pending == coins_for_amount(order.total_agorot)
+    assert member.coin_balance == 0
     assert order.payment_status.value == "paid"
+
+    await submit_feedback(db, order, member, food=5, service=5)
+    await db.commit()
+
+    assert order.coins_awarded is True
+    assert order.coins_earned == order.coins_earned
+    assert member.coin_balance == order.coins_earned
     assert await _ledger_sum(db, member.id) == member.coin_balance
 
 
@@ -102,13 +112,13 @@ async def test_redeeming_coins_discounts_the_order(db, member):
     await record_coins(db, member, 1000, CoinTxKind.signup_bonus)
     await db.commit()
 
-    # 42 ILS bill -> half is 21 ILS -> at most 210 coins.
-    order = await create_order(db, member, [(hummus.id, 1)], "", 210)
+    # ₪42 bill -> half is ₪21 -> at most 21 coins at ₪1 each.
+    order = await create_order(db, member, [(hummus.id, 1)], "", 21)
     await db.commit()
 
-    assert order.discount_agorot == 210 * AGOROT_PER_COIN
+    assert order.discount_agorot == 21 * agorot_per_coin()
     assert order.total_agorot == 4200 - 2100
-    assert member.coin_balance == 1000 - 210
+    assert member.coin_balance == 1000 - 21
     assert await _ledger_sum(db, member.id) == member.coin_balance
 
 
@@ -127,9 +137,9 @@ async def test_cancelling_refunds_spent_coins(db, member):
     await record_coins(db, member, 500, CoinTxKind.signup_bonus)
     await db.commit()
 
-    order = await create_order(db, member, [(hummus.id, 1)], "", 200)
+    order = await create_order(db, member, [(hummus.id, 1)], "", 20)
     await db.commit()
-    assert member.coin_balance == 300
+    assert member.coin_balance == 480
 
     await advance_order_status(db, order, OrderStatus.cancelled)
     await db.commit()

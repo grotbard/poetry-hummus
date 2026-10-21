@@ -85,17 +85,34 @@ database leaves the service.
 
 ## Poet Coins (מטבעות משורר)
 
-The chickpea is the coin. Rules live in `backend/app/services.py` and are tunable by env var:
+The chickpea is the coin. Rules live in `backend/app/configuration/main.py` and are
+tunable by env var, so none of this needs a code change:
 
-- **Earning** — `COINS_PER_SHEKEL` (default 1) coin per ₪1, credited when an order
-  reaches `collected`, never before. `coins_awarded` makes that award idempotent.
-- **Signup bonus** — `SIGNUP_BONUS_COINS` (default 20) on first Google sign-in.
-- **Redemption** — 1 coin = 10 agorot, i.e. 100 coins = ₪10.
-- **Redemption cap** — at most 50% of any single bill (`MAX_REDEEM_FRACTION`),
-  so every order still takes some cash.
-- **Cancellation** — coins spent on a cancelled order are refunded; refunds do not
-  inflate `lifetime_coins_earned`.
-- **Rewards catalogue** — fixed-price perks (free pita → meal for two) redeemed for a voucher code.
+| Rule | Default | Setting |
+|---|---|---|
+| Minimum order to earn | ₪45 | `POETRY_LOYALTY__EARN_MIN_ORDER_AGOROT` |
+| Earn rate | 5% of the amount paid | `POETRY_LOYALTY__EARN_PERCENT` |
+| Coin value when redeemed | ₪1 | `POETRY_LOYALTY__AGOROT_PER_COIN` |
+| Coins expire after | 60 days | `POETRY_LOYALTY__COIN_EXPIRY_DAYS` (0 = never) |
+| Feedback window | 10 hours | `POETRY_LOYALTY__FEEDBACK_WINDOW_HOURS` |
+| Signup bonus | 5 | `POETRY_LOYALTY__SIGNUP_BONUS_COINS` |
+| Redemption cap | 50% of a bill | `MAX_REDEEM_FRACTION` in `services.py` |
+
+- **Earning is gated on feedback.** Collecting an order moves coins to
+  `coins_pending`; they reach the balance only once the member rates the food and
+  the service (1-5 each). After the window closes the ratings are still recorded —
+  they are useful either way — but the coins are forfeited.
+- **The basis is what was actually paid**, so redeeming coins lowers both the 5%
+  and the ₪45 test, and coins cannot partly regenerate themselves.
+- **Expiry is lazy.** Credits carry `expires_at`; spending retires the oldest
+  first (FIFO), and any read of a balance lapses what is overdue. No scheduled
+  job, which matters on hosts that do not offer one.
+- **Cancellation** refunds coins spent on the order without inflating
+  `lifetime_coins_earned`.
+
+The member UI presents coins as a standalone currency and never shows a
+coin-to-shekel rate; the cart shows the actual discount, and the admin overview
+keeps the outstanding-coin liability in shekels.
 
 Every movement is an append-only row in `coin_transactions` carrying `amount`,
 `kind`, `balance_after` and a reason. `users.coin_balance` is a cached running total;
@@ -138,12 +155,12 @@ Money is stored in agorot (integers) throughout — no floats. Enums are persist
 
 ```bash
 cd backend
-.venv/bin/python -m pytest -q              # 62 unit tests: ledger, menu, ordering, config, secrets
+.venv/bin/python -m pytest -q              # 111 unit tests
 .venv/bin/python scripts/smoke_test.py     # 62 end-to-end API checks
 cd ../frontend && npm run typecheck && npm run build
 ```
 
-`scripts/smoke_test.py` drives the real ASGI app end to end. It defaults to a throwaway
+`scripts/smoke_test.py` drives the real ASGI app end to end (67 checks). It defaults to a throwaway
 SQLite file; set `DATABASE_URL` to a Postgres URL to run the identical flow there.
 
 To fill the admin dashboard with something to look at:

@@ -133,6 +133,8 @@ async def main() -> int:
         client.cookies.clear()
 
         print("\nOrdering and coins")
+        coin_rules = (await client.get("/api/coins/rules")).json()
+        per_coin = coin_rules["agorot_per_coin"]
         hummus = next(m for m in menu if m["name_he"] == "חומוס המשורר")
         pita = next(m for m in menu if m["name_he"] == "פיתה חמה")
 
@@ -142,9 +144,11 @@ async def main() -> int:
         )
         preview = r.json()
         check("redeem preview caps at half the bill",
-              preview["max_coins"] == (hummus["price_agorot"] // 2) // 10,
+              preview["max_coins"] == (hummus["price_agorot"] // 2) // per_coin,
               str(preview))
 
+        # Half of a two-hummus-plus-pita bill, in coins.
+        REDEEM = (hummus["price_agorot"] * 2 + pita["price_agorot"]) // 2 // per_coin
         r = await client.post(
             "/api/orders",
             headers=member_auth,
@@ -154,21 +158,21 @@ async def main() -> int:
                     {"menu_item_id": pita["id"], "quantity": 1},
                 ],
                 "note": "בלי בצל בבקשה",
-                "redeem_coins": 100,
+                "redeem_coins": REDEEM,
             },
         )
         check("order created", r.status_code == 201, r.text[:200])
         order = r.json()
         expected_subtotal = hummus["price_agorot"] * 2 + pita["price_agorot"]
         check("subtotal correct", order["subtotal_agorot"] == expected_subtotal)
-        check("discount applied", order["discount_agorot"] == 1000)
+        check("discount applied", order["discount_agorot"] == REDEEM * per_coin)
         check("total = subtotal - discount",
-              order["total_agorot"] == expected_subtotal - 1000)
+              order["total_agorot"] == expected_subtotal - REDEEM * per_coin)
         check("order number formatted", order["order_number"].startswith("PH-"),
               order["order_number"])
 
         r = await client.get("/api/auth/me", headers=member_auth)
-        check("coins debited on redemption", r.json()["coin_balance"] == 400,
+        check("coins debited on redemption", r.json()["coin_balance"] == 500 - REDEEM,
               str(r.json()["coin_balance"]))
 
         r = await client.post(
@@ -202,9 +206,16 @@ async def main() -> int:
             check(label, r.status_code == 200, r.text[:150])
             updated = r.json() if r.status_code == 200 else {}
 
-        check("coins awarded on collection",
-              updated.get("coins_earned") == (order["total_agorot"] // 100),
-              str(updated.get("coins_earned")))
+        # Coins are now held until the member rates the order.
+        expected_award = (
+            0
+            if order["total_agorot"] < coin_rules["earn_min_order_agorot"]
+            else int(order["total_agorot"] * coin_rules["earn_percent"] / 100 // 100)
+        )
+        check("coins held pending feedback",
+              updated.get("coins_pending") == expected_award,
+              f"pending={updated.get('coins_pending')} expected={expected_award}")
+        check("nothing earned before feedback", updated.get("coins_earned") == 0)
         check("marked paid on collection", updated.get("payment_status") == "paid")
 
         r = await client.patch(
@@ -213,17 +224,42 @@ async def main() -> int:
         )
         check("terminal order can't change again", r.status_code == 400)
 
+        print("\nFeedback releases the held coins")
+        before_feedback = (await client.get("/api/auth/me", headers=member_auth)).json()[
+            "coin_balance"
+        ]
+        r = await client.post(
+            f"/api/orders/{order['id']}/feedback",
+            headers=member_auth,
+            json={"food": 5, "service": 4},
+        )
+        check("feedback accepted", r.status_code == 200, r.text[:150])
+        check("feedback granted the held coins",
+              r.json().get("coins_granted") == expected_award,
+              str(r.json()))
+        r = await client.post(
+            f"/api/orders/{order['id']}/feedback",
+            headers=member_auth, json={"food": 1, "service": 1},
+        )
+        check("feedback cannot be submitted twice", r.status_code == 400)
+        r = await client.post(
+            f"/api/orders/{order['id']}/feedback",
+            headers=member_auth, json={"food": 9, "service": 1},
+        )
+        check("rating outside 1-5 rejected", r.status_code == 422)
+
         r = await client.get("/api/auth/me", headers=member_auth)
         balance_after_earn = r.json()["coin_balance"]
         check("earned coins credited once",
-              balance_after_earn == 400 + (order["total_agorot"] // 100),
+              balance_after_earn == before_feedback + expected_award,
               str(balance_after_earn))
 
         print("\nMember cancellation refunds coins")
+        second_redeem = hummus["price_agorot"] // 2 // per_coin
         r = await client.post(
             "/api/orders", headers=member_auth,
             json={"items": [{"menu_item_id": hummus["id"], "quantity": 1}],
-                  "redeem_coins": 200},
+                  "redeem_coins": second_redeem},
         )
         second = r.json()
         check("second order created", r.status_code == 201, r.text[:150])
