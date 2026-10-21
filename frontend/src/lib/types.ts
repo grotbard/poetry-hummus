@@ -25,6 +25,7 @@ export interface MenuItem {
   category: string
   price_agorot: number
   emoji: string
+  image_url: string | null
   is_available: boolean
   is_vegan: boolean
   sort_order: number

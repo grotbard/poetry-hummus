@@ -39,6 +39,28 @@ export const api = {
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 }
 
+/** Multipart upload; the browser sets its own Content-Type boundary. */
+export async function uploadFile<T>(path: string, file: File): Promise<T> {
+  const body = new FormData()
+  body.append('file', file)
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    body,
+  })
+  if (!res.ok) {
+    let detail = `שגיאה (${res.status})`
+    try {
+      const parsed = await res.json()
+      if (typeof parsed.detail === 'string') detail = parsed.detail
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new ApiError(detail, res.status)
+  }
+  return res.json() as Promise<T>
+}
+
 /** Full-page redirect into Google's consent screen. */
 export function googleLoginUrl(): string {
   return `${BASE}/api/auth/google/login`

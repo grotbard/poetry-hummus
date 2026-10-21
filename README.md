@@ -57,8 +57,14 @@ the ledger is the source of truth and the two are asserted equal in tests.
 - **Block/unblock** a member (self-disable is refused); blocked members lose access immediately.
 - **Activity log** — logins, registrations, orders, status changes, redemptions and admin
   actions, filterable by type and time window.
-- **Menu** — edit prices and toggle availability live. Items are soft-deleted and order
-  lines snapshot name + price, so history survives menu changes.
+- **Menu** — add items, upload a photo per item, edit prices and toggle availability live.
+  Deleting removes an item outright if it was never ordered; one with order history is
+  retired (hidden) instead, so past orders keep their link. Order lines also snapshot
+  name + price, so history survives any menu change.
+
+Item photos are validated by magic bytes (JPEG/PNG/GIF/WebP, max 4MB — SVG is refused
+since it can carry script), stored under `backend/media/` and served at `/media`.
+Replacing or deleting an image removes the old file.
 
 ## Data model
 
@@ -70,7 +76,7 @@ Money is stored in agorot (integers) throughout — no floats. Enums are persist
 
 ```bash
 cd backend
-.venv/bin/python -m pytest -q              # 13 unit tests over the coin ledger
+.venv/bin/python -m pytest -q              # 29 unit tests: coin ledger + menu admin
 .venv/bin/python scripts/smoke_test.py     # 62 end-to-end API checks
 cd ../frontend && npm run typecheck && npm run build
 ```

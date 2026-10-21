@@ -10,6 +10,11 @@ export default defineConfig({
         target: process.env.VITE_API_TARGET ?? 'http://localhost:8000',
         changeOrigin: true,
       },
+      // Uploaded menu photos are served by the API, not by Vite.
+      '/media': {
+        target: process.env.VITE_API_TARGET ?? 'http://localhost:8000',
+        changeOrigin: true,
+      },
     },
   },
 })

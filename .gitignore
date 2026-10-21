@@ -19,3 +19,6 @@ dist/
 .idea/
 .vscode/
 *.tsbuildinfo
+
+# Uploaded menu photos
+backend/media/

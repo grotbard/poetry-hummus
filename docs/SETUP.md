@@ -7,9 +7,10 @@
 3. תחת **Authorized redirect URIs** הוסיפו בדיוק:
    - פיתוח: `http://localhost:8000/api/auth/google/callback`
    - ייצור: `https://<your-api-domain>/api/auth/google/callback`
-4. תחת **Authorized JavaScript origins**:
-   - `http://localhost:5173` (פיתוח), `https://<your-web-domain>` (ייצור)
-5. העתיקו את ה-Client ID וה-Client Secret ל-`backend/.env`.
+4. **Authorized JavaScript origins — השאירו ריק.** האפליקציה לא טוענת את ספריית
+   ה-JS של גוגל; כל ה-OAuth עובר שרת-לשרת. (גוגל גם דוחה ערך עם `/` בסוף,
+   עם השגיאה `Invalid Origin: URIs must not contain a path or end with "/"`.)
+5. העתיקו את ה-Client ID וה-Client Secret ל-`backend/.env` והפעילו מחדש את ה-API.
 
 ה-redirect URI נגזר מ-`PUBLIC_API_URL`, לכן ודאו שהוא תואם למה שרשום ב-Google.
 
@@ -93,3 +94,17 @@ cd backend && .venv/bin/python scripts/seed_demo.py
   ונדחים על ידי ולידציית האימייל. השתמשו בדומיין אמיתי.
 - **`redirect_uri_mismatch` מגוגל** — ה-URI ב-Google Console חייב להיות זהה
   ל-`{PUBLIC_API_URL}/api/auth/google/callback`.
+
+## 10. תמונות למנות
+
+מנהל יכול להעלות תמונה לכל מנה מלשונית **תפריט** — לחיצה על הריבוע של המנה פותחת
+בחירת קובץ. התמונות נשמרות ב-`backend/media/` ומוגשות תחת `/media`.
+
+- פורמטים נתמכים: JPEG, PNG, GIF, WebP. עד 4MB.
+- הזיהוי נעשה לפי תוכן הקובץ ולא לפי הסיומת; SVG נדחה בכוונה (יכול להכיל סקריפט).
+- החלפה או הסרה של תמונה מוחקת את הקובץ הישן מהדיסק.
+- התיקייה `backend/media/` אינה נכנסת ל-git. בפריסה אמיתית כדאי להעביר את
+  האחסון ל-S3 או לעגן volume קבוע, אחרת התמונות ייעלמו בכל פריסה מחדש.
+
+**מחיקת מנה:** מנה שמעולם לא הוזמנה נמחקת לגמרי. מנה שכבר מופיעה בהזמנות עבר
+מוסתרת מהתפריט במקום להימחק, כדי לא לשבור את היסטוריית ההזמנות.

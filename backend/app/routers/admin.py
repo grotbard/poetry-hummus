@@ -1,6 +1,8 @@
+import secrets
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import Select, case, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +13,7 @@ from ..models import (
     CoinTxKind,
     MenuItem,
     Order,
+    OrderItem,
     OrderStatus,
     PaymentStatus,
     Reward,
@@ -370,14 +373,148 @@ async def update_menu_item(
     return item
 
 
-@router.delete("/menu/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_menu_item(item_id: int, db: AsyncSession = Depends(get_db)) -> None:
+# Uploaded item photos live here and are served at /media.
+MEDIA_ROOT = Path(__file__).resolve().parents[2] / "media" / "menu"
+MAX_IMAGE_BYTES = 4 * 1024 * 1024
+
+
+def _sniff_image(data: bytes) -> str | None:
+    """Identify an image by its magic bytes (stdlib imghdr is gone in 3.13).
+
+    Returns the file extension to store under, or None if unrecognised.
+    """
+    if data[:3] == b"\xff\xd8\xff":
+        return ".jpg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return ".png"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return ".gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return ".webp"
+    return None
+
+
+@router.post("/menu/{item_id}/image", response_model=MenuItemOut)
+async def upload_menu_image(
+    item_id: int,
+    admin: User = Depends(get_current_admin),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+) -> MenuItem:
+    """Attach a photo to a menu item, replacing any previous one."""
     item = await db.get(MenuItem, item_id)
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Menu item not found")
-    # Soft delete: order history references this row.
-    item.is_available = False
+
+    payload = await file.read(MAX_IMAGE_BYTES + 1)
+    if not payload:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uploaded file is empty")
+    if len(payload) > MAX_IMAGE_BYTES:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Image must be 4MB or smaller"
+        )
+
+    # Trust the bytes, not the filename or the client-supplied content type.
+    suffix = _sniff_image(payload)
+    if suffix is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Unsupported image format — use JPEG, PNG, GIF or WebP",
+        )
+
+    MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
+    filename = f"{item_id}-{secrets.token_hex(8)}{suffix}"
+    (MEDIA_ROOT / filename).write_bytes(payload)
+
+    previous = item.image_url
+    item.image_url = f"/media/menu/{filename}"
+
+    await log_activity(
+        db,
+        "admin.menu_image_uploaded",
+        actor_id=admin.id,
+        details={"item": item.name_he, "file": filename},
+    )
     await db.commit()
+    await db.refresh(item)
+
+    # Drop the old file only once the new path is safely committed.
+    if previous:
+        _remove_media(previous)
+    return item
+
+
+@router.delete("/menu/{item_id}/image", response_model=MenuItemOut)
+async def delete_menu_image(
+    item_id: int,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> MenuItem:
+    item = await db.get(MenuItem, item_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Menu item not found")
+
+    previous = item.image_url
+    item.image_url = None
+    await log_activity(
+        db, "admin.menu_image_removed", actor_id=admin.id, details={"item": item.name_he}
+    )
+    await db.commit()
+    await db.refresh(item)
+    if previous:
+        _remove_media(previous)
+    return item
+
+
+def _remove_media(url: str) -> None:
+    """Delete a previously uploaded file, ignoring anything outside MEDIA_ROOT."""
+    try:
+        candidate = (MEDIA_ROOT / Path(url).name).resolve()
+        if candidate.is_relative_to(MEDIA_ROOT.resolve()) and candidate.is_file():
+            candidate.unlink()
+    except OSError:
+        # A missing or unreadable file must not fail the request.
+        pass
+
+
+@router.delete("/menu/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_menu_item(
+    item_id: int,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Remove an item outright when it was never ordered, otherwise retire it.
+
+    Order lines keep a name/price snapshot, but deleting a row that history
+    points at would blank out the link, so those are hidden instead.
+    """
+    item = await db.get(MenuItem, item_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Menu item not found")
+
+    ordered = (
+        await db.execute(
+            select(func.count(OrderItem.id)).where(OrderItem.menu_item_id == item_id)
+        )
+    ).scalar() or 0
+
+    image = item.image_url
+    if ordered:
+        item.is_available = False
+        action = "admin.menu_item_retired"
+    else:
+        await db.delete(item)
+        action = "admin.menu_item_deleted"
+
+    await log_activity(
+        db,
+        action,
+        actor_id=admin.id,
+        details={"item": item.name_he, "past_orders": ordered},
+    )
+    await db.commit()
+    if image and not ordered:
+        _remove_media(image)
 
 
 @router.get("/rewards", response_model=list[RewardOut])

@@ -48,6 +48,7 @@ class MenuItemOut(ORMModel):
     category: str
     price_agorot: int
     emoji: str
+    image_url: str | None
     is_available: bool
     is_vegan: bool
     sort_order: int
@@ -72,6 +73,7 @@ class MenuItemPatch(BaseModel):
     category: str | None = None
     price_agorot: int | None = Field(default=None, ge=0)
     emoji: str | None = None
+    image_url: str | None = None
     is_available: bool | None = None
     is_vegan: bool | None = None
     sort_order: int | None = None

@@ -129,9 +129,18 @@ export function MenuPage() {
                   key={item.id}
                   className="card p-4 flex gap-3 items-start"
                 >
-                  <span className="text-3xl leading-none shrink-0" aria-hidden>
-                    {item.emoji || '🫛'}
-                  </span>
+                  {item.image_url ? (
+                    <img
+                      src={item.image_url}
+                      alt=""
+                      className="h-16 w-16 shrink-0 rounded-2xl object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <span className="shrink-0 text-3xl leading-none" aria-hidden>
+                      {item.emoji || '🫛'}
+                    </span>
+                  )}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2">
                       <h3 className="font-display text-base text-ink truncate">

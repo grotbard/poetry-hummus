@@ -109,6 +109,8 @@ class MenuItem(Base):
     # Prices are stored in agorot (1/100 ILS) to avoid float money.
     price_agorot: Mapped[int] = mapped_column(Integer)
     emoji: Mapped[str] = mapped_column(String(16), default="")
+    # Path of an uploaded item photo, served from /media. Falls back to emoji.
+    image_url: Mapped[str | None] = mapped_column(Text, default=None)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     is_vegan: Mapped[bool] = mapped_column(Boolean, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=100)
