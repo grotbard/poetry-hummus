@@ -25,6 +25,7 @@ from ..models import (
 )
 from ..schemas import (
     ActivityLogOut,
+    AdminOrderOut,
     MenuCategoryOut,
     AdminStats,
     AdminUserRow,
@@ -263,18 +264,31 @@ async def toggle_active(
     return user
 
 
-@router.get("/orders", response_model=Paginated[OrderOut])
+@router.get("/orders", response_model=Paginated[AdminOrderOut])
 async def list_orders(
     status_filter: OrderStatus | None = Query(None, alias="status"),
+    q: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-) -> Paginated[OrderOut]:
-    stmt = select(Order)
-    count_stmt = select(func.count(Order.id))
+) -> Paginated[AdminOrderOut]:
+    # Join the customer so the kitchen sees who each order belongs to; one
+    # query rather than a lookup per row.
+    stmt = select(Order, User).join(User, User.id == Order.user_id)
+    count_stmt = select(func.count(Order.id)).join(User, User.id == Order.user_id)
+
     if status_filter is not None:
         stmt = stmt.where(Order.status == status_filter)
         count_stmt = count_stmt.where(Order.status == status_filter)
+    if q:
+        pattern = f"%{q.strip().lower()}%"
+        cond = (
+            func.lower(User.full_name).like(pattern)
+            | func.lower(User.email).like(pattern)
+            | func.lower(Order.order_number).like(pattern)
+        )
+        stmt = stmt.where(cond)
+        count_stmt = count_stmt.where(cond)
 
     total = (await db.execute(count_stmt)).scalar() or 0
     rows = await db.execute(
@@ -282,11 +296,21 @@ async def list_orders(
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
-    return Paginated[OrderOut](
-        items=[OrderOut.model_validate(o) for o in rows.scalars().all()],
-        total=total,
-        page=page,
-        page_size=page_size,
+
+    items = [
+        AdminOrderOut(
+            **OrderOut.model_validate(order).model_dump(),
+            customer_id=customer.id,
+            # Fall back to the email when a Google account has no name set.
+            customer_name=customer.full_name or customer.email,
+            customer_email=customer.email,
+            customer_phone=customer.phone,
+        )
+        for order, customer in rows.all()
+    ]
+
+    return Paginated[AdminOrderOut](
+        items=items, total=total, page=page, page_size=page_size
     )
 
 

@@ -143,6 +143,18 @@ class OrderOut(ORMModel):
     items: list[OrderItemOut]
 
 
+class AdminOrderOut(OrderOut):
+    """An order as the kitchen sees it: who placed it, and how to reach them.
+
+    Separate from OrderOut so customer details never reach member endpoints.
+    """
+
+    customer_id: int
+    customer_name: str
+    customer_email: str
+    customer_phone: str | None
+
+
 class OrderStatusUpdate(BaseModel):
     status: OrderStatus
 

@@ -76,6 +76,14 @@ export interface Order {
   items: OrderItem[]
 }
 
+/** An order as the admin sees it, with the customer attached. */
+export interface AdminOrder extends Order {
+  customer_id: number
+  customer_name: string
+  customer_email: string
+  customer_phone: string | null
+}
+
 export interface CoinTransaction {
   id: number
   amount: number

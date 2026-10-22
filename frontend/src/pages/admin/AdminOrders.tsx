@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import { dateTime, shekels, STATUS_LABELS, STATUS_STYLES } from '../../lib/format'
-import type { Order, OrderStatus, Paginated } from '../../lib/types'
+import type { AdminOrder, Order, OrderStatus, Paginated } from '../../lib/types'
 import { CoinAmount } from '../../components/Chickpea'
 
 const FILTERS: { key: OrderStatus | 'all'; label: string }[] = [
@@ -30,13 +30,16 @@ const NEXT: Partial<Record<OrderStatus, { to: OrderStatus; label: string }[]>> =
 export function AdminOrders() {
   const queryClient = useQueryClient()
   const [filter, setFilter] = useState<OrderStatus | 'all'>('all')
+  const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['admin', 'orders', filter, page],
+    queryKey: ['admin', 'orders', filter, page, query],
     queryFn: () =>
-      api.get<Paginated<Order>>(
-        `/api/admin/orders?page=${page}&page_size=25${filter === 'all' ? '' : `&status=${filter}`}`,
+      api.get<Paginated<AdminOrder>>(
+        `/api/admin/orders?page=${page}&page_size=25` +
+          (filter === 'all' ? '' : `&status=${filter}`) +
+          (query.trim() ? `&q=${encodeURIComponent(query.trim())}` : ''),
       ),
     refetchInterval: 15_000,
   })
@@ -53,6 +56,19 @@ export function AdminOrders() {
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          className="input max-w-xs"
+          placeholder="חיפוש לפי שם, אימייל או מספר הזמנה…"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value)
+            setPage(1)
+          }}
+        />
+        {data && <span className="text-sm text-ink/55">{data.total} הזמנות</span>}
+      </div>
+
       <div className="flex flex-wrap gap-1.5">
         {FILTERS.map((f) => (
           <button
@@ -79,13 +95,31 @@ export function AdminOrders() {
         {data?.items.map((order) => (
           <article key={order.id} className="card p-4">
             <header className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-3">
+              <div className="flex min-w-0 items-center gap-3">
                 <span className={`chip ${STATUS_STYLES[order.status]}`}>
                   {STATUS_LABELS[order.status]}
                 </span>
-                <span className="font-mono text-sm text-ink/60">{order.order_number}</span>
+                <div className="min-w-0">
+                  <p className="truncate font-bold text-ink">{order.customer_name}</p>
+                  <p className="truncate text-xs text-ink/50">
+                    <span className="font-mono">{order.order_number}</span>
+                    {order.customer_phone && (
+                      <>
+                        {' · '}
+                        <a
+                          href={`tel:${order.customer_phone.replace(/[^+\d]/g, '')}`}
+                          className="hover:text-wine hover:underline"
+                        >
+                          {order.customer_phone}
+                        </a>
+                      </>
+                    )}
+                  </p>
+                </div>
               </div>
-              <span className="text-xs text-ink/45">{dateTime(order.created_at)}</span>
+              <span className="shrink-0 text-xs text-ink/45">
+                {dateTime(order.created_at)}
+              </span>
             </header>
 
             <ul className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink/70">
