@@ -2,12 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..configuration import settings
 from ..db import get_db
 from ..menu_query import menu_ordered
 from ..models import (
     CoinTransaction,
     MenuCategory,
     MenuItem,
+    Referral,
     Order,
     OrderStatus,
     Reward,
@@ -17,6 +19,8 @@ from ..schemas import (
     CoinTransactionOut,
     FeedbackIn,
     FeedbackResult,
+    InvitedFriend,
+    ReferralSummary,
     MenuCategoryOut,
     MenuItemOut,
     OrderCreate,
@@ -32,6 +36,7 @@ from ..services import (
     create_order,
     expire_coins,
     feedback_window_open,
+    get_or_create_referral_code,
     submit_feedback,
     max_redeemable_coins,
     redeem_reward,
@@ -70,8 +75,6 @@ async def list_rewards(db: AsyncSession = Depends(get_db)) -> list[Reward]:
 
 @router.get("/coins/rules")
 async def coin_rules() -> dict:
-    from ..configuration import settings
-
     return {
         "coins_per_shekel": settings.loyalty.coins_per_shekel,
         "coin_expiry_days": settings.loyalty.coin_expiry_days,
@@ -185,6 +188,51 @@ async def submit_order_feedback(
     await db.refresh(user)
     return FeedbackResult(
         ok=True, coins_granted=granted, balance=user.coin_balance, in_time=in_time
+    )
+
+
+@router.get("/referrals", response_model=ReferralSummary)
+async def my_referrals(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ReferralSummary:
+    """This member's invite link and who has joined through it."""
+    code = await get_or_create_referral_code(db, user)
+    await db.commit()
+
+    rows = (
+        await db.execute(
+            select(Referral, User)
+            .join(User, User.id == Referral.invitee_id)
+            .where(Referral.inviter_id == user.id)
+            .order_by(desc(Referral.created_at))
+        )
+    ).all()
+
+    friends = [
+        InvitedFriend(
+            # First name only: the inviter does not need their friend's email.
+            name=(invitee.full_name or invitee.email).split()[0],
+            joined_at=referral.created_at,
+            completed=referral.completed_at is not None,
+            coins_earned=referral.inviter_coins,
+        )
+        for referral, invitee in rows
+    ]
+    completed = sum(1 for f in friends if f.completed)
+    loyalty = settings.loyalty
+
+    return ReferralSummary(
+        code=code,
+        link=f"{settings.frontend_url}/?ref={code}",
+        coins_per_friend=loyalty.referral_inviter_coins,
+        friend_bonus_coins=loyalty.referral_invitee_coins,
+        max_friends=loyalty.referral_max_friends,
+        completed_count=completed,
+        pending_count=len(friends) - completed,
+        coins_earned=sum(f.coins_earned for f in friends),
+        slots_left=max(0, loyalty.referral_max_friends - completed),
+        friends=friends,
     )
 
 

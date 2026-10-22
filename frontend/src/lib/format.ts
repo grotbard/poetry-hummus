@@ -49,6 +49,7 @@ export const COIN_KIND_LABELS: Record<string, string> = {
   admin_adjust: 'עדכון מנהל',
   refund: 'החזר על ביטול',
   expired: 'פקיעת תוקף',
+  referral: 'הזמנת חברים',
 }
 
 export const ACTION_LABELS: Record<string, string> = {
@@ -63,4 +64,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'admin.user_toggled': 'מנהל שינה סטטוס חבר',
   'order.feedback_submitted': 'דירוג הזמנה',
   'coins.expired': 'מטבעות פקעו',
+  'referral.joined': 'הצטרף דרך הזמנת חבר',
+  'referral.completed': 'הזמנת חבר הושלמה',
+  'referral.capped': 'הזמנת חבר מעל התקרה',
 }

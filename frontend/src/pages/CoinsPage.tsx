@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth'
 import { COIN_KIND_LABELS, dateOnly, dateTime } from '../lib/format'
 import type { CoinRules, CoinTransaction } from '../lib/types'
 import { Chickpea, CoinAmount } from '../components/Chickpea'
+import { InviteFriends } from '../components/InviteFriends'
 
 export function CoinsPage() {
   const { user } = useAuth()
@@ -56,6 +57,8 @@ export function CoinsPage() {
           </div>
         </div>
       </section>
+
+      <InviteFriends />
 
       <section className="card p-5">
         <h2 className="mb-1 text-lg text-wine">איך זה עובד</h2>

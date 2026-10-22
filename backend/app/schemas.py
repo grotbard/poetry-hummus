@@ -187,6 +187,28 @@ class CoinTransactionOut(ORMModel):
     expires_at: datetime | None
 
 
+class InvitedFriend(BaseModel):
+    name: str
+    joined_at: datetime
+    completed: bool
+    coins_earned: int
+
+
+class ReferralSummary(BaseModel):
+    """Everything the invite panel needs."""
+
+    code: str
+    link: str
+    coins_per_friend: int
+    friend_bonus_coins: int
+    max_friends: int
+    completed_count: int
+    pending_count: int
+    coins_earned: int
+    slots_left: int
+    friends: list[InvitedFriend]
+
+
 class RewardOut(ORMModel):
     id: int
     name_he: str

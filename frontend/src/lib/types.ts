@@ -3,6 +3,7 @@ export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'collected' | 'can
 export type PaymentStatus = 'unpaid' | 'paid' | 'refunded'
 export type CoinTxKind =
   | 'earn'
+  | 'referral'
   | 'redeem'
   | 'signup_bonus'
   | 'admin_adjust'
@@ -93,6 +94,26 @@ export interface CoinTransaction {
   order_id: number | null
   created_at: string
   expires_at: string | null
+}
+
+export interface InvitedFriend {
+  name: string
+  joined_at: string
+  completed: boolean
+  coins_earned: number
+}
+
+export interface ReferralSummary {
+  code: string
+  link: string
+  coins_per_friend: number
+  friend_bonus_coins: number
+  max_friends: number
+  completed_count: number
+  pending_count: number
+  coins_earned: number
+  slots_left: number
+  friends: InvitedFriend[]
 }
 
 export interface Reward {

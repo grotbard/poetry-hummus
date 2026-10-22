@@ -14,6 +14,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -50,6 +51,7 @@ class PaymentStatus(str, enum.Enum):
 
 class CoinTxKind(str, enum.Enum):
     earn = "earn"
+    referral = "referral"
     redeem = "redeem"
     signup_bonus = "signup_bonus"
     admin_adjust = "admin_adjust"
@@ -77,6 +79,11 @@ class User(Base):
     picture_url: Mapped[str | None] = mapped_column(Text, default=None)
     phone: Mapped[str | None] = mapped_column(String(40), default=None)
 
+    # Share code in this member's invite link. Assigned on first use.
+    referral_code: Mapped[str | None] = mapped_column(
+        String(16), unique=True, index=True, default=None
+    )
+
     role: Mapped[UserRole] = mapped_column(
         _enum(UserRole, "user_role"), default=UserRole.member, index=True
     )
@@ -97,6 +104,37 @@ class User(Base):
     orders: Mapped[list[Order]] = relationship(back_populates="user")
     coin_transactions: Mapped[list[CoinTransaction]] = relationship(
         back_populates="user", foreign_keys="CoinTransaction.user_id"
+    )
+
+
+class Referral(Base):
+    """One invited friend.
+
+    Created when the friend signs up through an invite link; the inviter is
+    paid only once that friend's first order is collected.
+    """
+
+    __tablename__ = "referrals"
+    __table_args__ = (
+        # A member can only ever be invited once, by one person.
+        UniqueConstraint("invitee_id", name="uq_referrals_invitee"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    inviter_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    invitee_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    # Set when the invitee's first order is collected and the inviter is paid.
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    inviter_coins: Mapped[int] = mapped_column(Integer, default=0)
+    invitee_coins: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )
 
 

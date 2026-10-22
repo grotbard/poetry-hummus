@@ -20,7 +20,7 @@ from ..security import (
     set_session_cookie,
     verify_password,
 )
-from ..services import expire_coins, log_activity, record_coins
+from ..services import attach_referral, expire_coins, log_activity, record_coins
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -29,6 +29,7 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
 
 OAUTH_STATE_COOKIE = "poet_oauth_state"
+REFERRAL_COOKIE = "poet_ref"
 
 
 @router.get("/config")
@@ -38,7 +39,7 @@ async def auth_config() -> dict:
 
 
 @router.get("/google/login")
-async def google_login() -> RedirectResponse:
+async def google_login(ref: str | None = None) -> RedirectResponse:
     if not settings.google.configured:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -65,6 +66,17 @@ async def google_login() -> RedirectResponse:
         max_age=600,
         path="/",
     )
+    # Remember the invite code across the round trip to Google.
+    if ref:
+        response.set_cookie(
+            REFERRAL_COOKIE,
+            ref[:16],
+            httponly=True,
+            secure=settings.cookie_secure,
+            samesite="lax",
+            max_age=1800,
+            path="/",
+        )
     return response
 
 
@@ -163,6 +175,10 @@ async def google_callback(
                 reason="בונוס הרשמה למועדון",
             )
         await log_activity(db, "user.registered", user_id=user.id, details={"via": "google"})
+        # A bad or missing code must never block the signup.
+        invite_code = request.cookies.get(REFERRAL_COOKIE)
+        if invite_code:
+            await attach_referral(db, user, invite_code)
     else:
         user.google_sub = sub
         if claims.get("picture"):
@@ -187,6 +203,7 @@ async def google_callback(
     response = RedirectResponse(f"{settings.frontend_url}{target}")
     set_session_cookie(response, create_session_token(user))
     response.delete_cookie(OAUTH_STATE_COOKIE, path="/")
+    response.delete_cookie(REFERRAL_COOKIE, path="/")
     return response
 
 

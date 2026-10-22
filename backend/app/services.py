@@ -6,7 +6,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .configuration import settings
@@ -18,6 +18,7 @@ from .models import (
     Order,
     OrderItem,
     OrderStatus,
+    Referral,
     PaymentStatus,
     User,
 )
@@ -405,6 +406,9 @@ async def advance_order_status(
             # submit_feedback. Nothing is pending when the order is too small.
             order.coins_pending = coins_for_amount(order.total_agorot)
 
+        # An invitation only pays out once the invited friend actually buys.
+        await complete_referral_if_due(db, order)
+
     elif new_status is OrderStatus.cancelled:
         # Give back any coins the member spent on this order.
         if order.coins_spent and user is not None:
@@ -511,3 +515,144 @@ async def redeem_reward(
         details={"reward": reward.name_he, "cost_coins": reward.cost_coins},
     )
     return tx
+
+
+# ---------------------------------------------------------------------------
+# Invitations
+# ---------------------------------------------------------------------------
+
+# Unambiguous alphabet: no 0/O or 1/I/L, since codes get read aloud.
+_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+_CODE_LENGTH = 8
+
+
+async def get_or_create_referral_code(db: AsyncSession, user: User) -> str:
+    """This member's invite code, minted on first use."""
+    if user.referral_code:
+        return user.referral_code
+
+    for _ in range(5):
+        candidate = "".join(secrets.choice(_CODE_ALPHABET) for _ in range(_CODE_LENGTH))
+        clash = (
+            await db.execute(
+                select(User.id).where(User.referral_code == candidate).limit(1)
+            )
+        ).scalar_one_or_none()
+        if clash is None:
+            user.referral_code = candidate
+            await db.flush()
+            return candidate
+    raise HTTPException(
+        status.HTTP_503_SERVICE_UNAVAILABLE, "Could not allocate an invite code"
+    )
+
+
+async def paid_referral_count(db: AsyncSession, inviter_id: int) -> int:
+    """Invitations that have already earned the inviter coins."""
+    return (
+        await db.execute(
+            select(func.count(Referral.id)).where(
+                Referral.inviter_id == inviter_id,
+                Referral.completed_at.is_not(None),
+            )
+        )
+    ).scalar() or 0
+
+
+async def attach_referral(
+    db: AsyncSession, invitee: User, code: str
+) -> Referral | None:
+    """Link a new member to whoever invited them and pay their joining bonus.
+
+    Returns None when the code is unusable — unknown, self-referral, or the
+    member was already invited. A bad code must never block a signup.
+    """
+    inviter = (
+        await db.execute(select(User).where(User.referral_code == code.strip().upper()))
+    ).scalar_one_or_none()
+    if inviter is None or inviter.id == invitee.id or not inviter.is_active:
+        return None
+
+    already = (
+        await db.execute(
+            select(Referral.id).where(Referral.invitee_id == invitee.id).limit(1)
+        )
+    ).scalar_one_or_none()
+    if already is not None:
+        return None
+
+    referral = Referral(inviter_id=inviter.id, invitee_id=invitee.id)
+    db.add(referral)
+    await db.flush()
+
+    bonus = settings.loyalty.referral_invitee_coins
+    if bonus:
+        await record_coins(
+            db,
+            invitee,
+            bonus,
+            CoinTxKind.referral,
+            reason="בונוס הצטרפות דרך הזמנת חבר",
+        )
+        referral.invitee_coins = bonus
+
+    await log_activity(
+        db,
+        "referral.joined",
+        user_id=invitee.id,
+        details={"inviter_id": inviter.id, "invitee_coins": bonus},
+    )
+    return referral
+
+
+async def complete_referral_if_due(db: AsyncSession, order: Order) -> int:
+    """Pay the inviter once this member's first order is collected.
+
+    Called when an order reaches `collected`. Returns the coins granted.
+    """
+    referral = (
+        await db.execute(
+            select(Referral).where(
+                Referral.invitee_id == order.user_id,
+                Referral.completed_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if referral is None:
+        return 0
+
+    inviter = await db.get(User, referral.inviter_id)
+    if inviter is None or not inviter.is_active:
+        return 0
+
+    # Mark it complete either way, so a capped invitation is not retried
+    # against every future order this friend places.
+    referral.completed_at = datetime.now(timezone.utc)
+
+    if await paid_referral_count(db, inviter.id) >= settings.loyalty.referral_max_friends:
+        await log_activity(
+            db,
+            "referral.capped",
+            user_id=inviter.id,
+            details={"invitee_id": order.user_id},
+        )
+        return 0
+
+    coins = settings.loyalty.referral_inviter_coins
+    if coins:
+        await record_coins(
+            db,
+            inviter,
+            coins,
+            CoinTxKind.referral,
+            reason="חבר שהזמנת ביצע הזמנה ראשונה",
+        )
+        referral.inviter_coins = coins
+
+    await log_activity(
+        db,
+        "referral.completed",
+        user_id=inviter.id,
+        details={"invitee_id": order.user_id, "coins": coins},
+    )
+    return coins

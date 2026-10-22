@@ -187,6 +187,12 @@ class LoyaltySettings(BaseSettings):
     agorot_per_coin: int = Field(default=100, ge=1)
     # Coins expire this many days after being earned. 0 disables expiry.
     coin_expiry_days: int = Field(default=60, ge=0)
+    # Coins the inviter earns once an invited friend completes a first order.
+    referral_inviter_coins: int = Field(default=3, ge=0)
+    # Extra starting coins the invited friend gets, on top of the signup bonus.
+    referral_invitee_coins: int = Field(default=3, ge=0)
+    # How many invitations one member can be paid for.
+    referral_max_friends: int = Field(default=10, ge=0)
 
 
 class AdminBootstrapSettings(BaseSettings):

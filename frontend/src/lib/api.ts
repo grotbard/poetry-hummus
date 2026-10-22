@@ -63,5 +63,27 @@ export async function uploadFile<T>(path: string, file: File): Promise<T> {
 
 /** Full-page redirect into Google's consent screen. */
 export function googleLoginUrl(): string {
-  return `${BASE}/api/auth/google/login`
+  // An invite link arrives as /?ref=CODE and may bounce through /login,
+  // so the code is stashed on arrival and replayed here.
+  let ref: string | null = null
+  try {
+    ref =
+      new URLSearchParams(window.location.search).get('ref') ??
+      sessionStorage.getItem('poet_ref')
+  } catch {
+    /* storage unavailable in a private window */
+  }
+  return ref
+    ? `${BASE}/api/auth/google/login?ref=${encodeURIComponent(ref)}`
+    : `${BASE}/api/auth/google/login`
+}
+
+/** Remember an invite code so it survives the redirect to /login. */
+export function captureReferralCode(): void {
+  try {
+    const ref = new URLSearchParams(window.location.search).get('ref')
+    if (ref) sessionStorage.setItem('poet_ref', ref.slice(0, 16))
+  } catch {
+    /* storage unavailable in a private window */
+  }
 }
