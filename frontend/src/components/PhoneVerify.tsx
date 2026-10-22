@@ -1,0 +1,180 @@
+import { useEffect, useState } from 'react'
+import { api } from '../lib/api'
+import type { PhoneCodeSent, User } from '../lib/types'
+
+type Step = 'phone' | 'code'
+
+/**
+ * Two-step phone verification, used both for signing up and for adding a
+ * number to an account that came in through Google.
+ */
+export function PhoneVerify({
+  mode,
+  onVerified,
+}: {
+  mode: 'signup' | 'attach'
+  onVerified: (user: User) => void
+}) {
+  const [step, setStep] = useState<Step>('phone')
+  const [phone, setPhone] = useState('')
+  const [code, setCode] = useState('')
+  const [email, setEmail] = useState('')
+  const [name, setName] = useState('')
+  const [devCode, setDevCode] = useState<string | null>(null)
+  const [cooldown, setCooldown] = useState(0)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  // Countdown until another code may be requested.
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const timer = setTimeout(() => setCooldown((n) => n - 1), 1000)
+    return () => clearTimeout(timer)
+  }, [cooldown])
+
+  async function sendCode() {
+    setError('')
+    setBusy(true)
+    try {
+      const sent = await api.post<PhoneCodeSent>('/api/auth/phone/request', { phone })
+      setPhone(sent.phone)
+      setCooldown(sent.resend_in_seconds)
+      setDevCode(sent.dev_code)
+      setStep('code')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'שליחת הקוד נכשלה')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function submitCode() {
+    setError('')
+    setBusy(true)
+    try {
+      const ref =
+        mode === 'signup'
+          ? (() => {
+              try {
+                return sessionStorage.getItem('poet_ref')
+              } catch {
+                return null
+              }
+            })()
+          : null
+      const user =
+        mode === 'signup'
+          ? await api.post<User>('/api/auth/phone/signup', {
+              phone,
+              code,
+              email,
+              full_name: name,
+              ref,
+            })
+          : await api.post<User>('/api/auth/phone/verify', { phone, code })
+      onVerified(user)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'האימות נכשל')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (step === 'phone') {
+    const detailsNeeded = mode === 'signup'
+    const ready =
+      phone.trim().length >= 9 && (!detailsNeeded || email.trim().includes('@'))
+    return (
+      <div className="space-y-3">
+        {detailsNeeded && (
+          <>
+            <input
+              className="input"
+              placeholder="שם מלא"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoComplete="name"
+            />
+            <input
+              className="input"
+              type="email"
+              placeholder="אימייל"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              dir="ltr"
+            />
+          </>
+        )}
+        <input
+          className="input"
+          type="tel"
+          placeholder="מספר טלפון (05X-XXXXXXX)"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          autoComplete="tel"
+          dir="ltr"
+        />
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <button
+          onClick={sendCode}
+          disabled={!ready || busy}
+          className="btn-primary w-full"
+        >
+          {busy ? 'שולח…' : 'שליחת קוד אימות'}
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-ink/65">
+        שלחנו קוד אימות ל<span dir="ltr">{phone}</span>
+      </p>
+      {devCode && (
+        <p className="rounded-2xl bg-chickpea/20 px-4 py-2 text-sm text-wine-dark">
+          מצב פיתוח — הקוד הוא <strong className="font-mono">{devCode}</strong>
+        </p>
+      )}
+      <input
+        className="input text-center font-mono text-xl tracking-[0.4em]"
+        inputMode="numeric"
+        maxLength={6}
+        placeholder="______"
+        value={code}
+        onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+        autoComplete="one-time-code"
+        dir="ltr"
+        autoFocus
+      />
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      <button
+        onClick={submitCode}
+        disabled={code.length < 4 || busy}
+        className="btn-primary w-full"
+      >
+        {busy ? 'מאמת…' : 'אימות'}
+      </button>
+      <div className="flex items-center justify-between text-sm">
+        <button
+          onClick={() => {
+            setStep('phone')
+            setCode('')
+            setError('')
+          }}
+          className="text-ink/55 hover:text-wine"
+        >
+          שינוי מספר
+        </button>
+        <button
+          onClick={sendCode}
+          disabled={cooldown > 0 || busy}
+          className="text-ink/55 hover:text-wine disabled:opacity-40"
+        >
+          {cooldown > 0 ? `שליחה חוזרת בעוד ${cooldown}` : 'שליחת קוד חדש'}
+        </button>
+      </div>
+    </div>
+  )
+}

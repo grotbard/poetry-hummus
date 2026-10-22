@@ -77,7 +77,14 @@ class User(Base):
 
     full_name: Mapped[str] = mapped_column(String(200), default="")
     picture_url: Mapped[str | None] = mapped_column(Text, default=None)
-    phone: Mapped[str | None] = mapped_column(String(40), default=None)
+    # Stored in E.164 (+972528498629) and unique once verified, so one phone
+    # cannot back two accounts.
+    phone: Mapped[str | None] = mapped_column(
+        String(40), unique=True, index=True, default=None
+    )
+    phone_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
 
     # Share code in this member's invite link. Assigned on first use.
     referral_code: Mapped[str | None] = mapped_column(
@@ -104,6 +111,32 @@ class User(Base):
     orders: Mapped[list[Order]] = relationship(back_populates="user")
     coin_transactions: Mapped[list[CoinTransaction]] = relationship(
         back_populates="user", foreign_keys="CoinTransaction.user_id"
+    )
+
+
+class PhoneVerification(Base):
+    """An outstanding SMS code.
+
+    Rows are kept after use as the rate-limiting history for a number.
+    """
+
+    __tablename__ = "phone_verifications"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True)
+    phone: Mapped[str] = mapped_column(String(40), index=True)
+    # Only the hash is stored: a leaked database should not hand over live codes.
+    code_hash: Mapped[str] = mapped_column(String(128))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    # Set when the code is requested by someone who is already signed in.
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
     )
 
 

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..configuration import settings
 from ..db import get_db
+from ..phone import display_phone, normalise_phone_or_400
 from ..menu_query import menu_ordered
 from ..models import (
     ActivityLog,
@@ -237,6 +238,57 @@ async def adjust_coins(
     return user
 
 
+@router.post("/users/{user_id}/verify-phone", response_model=UserOut)
+async def verify_user_phone(
+    user_id: int,
+    payload: dict,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> UserOut:
+    """Set and confirm a member's phone without sending a code.
+
+    For support cases — a member who changed number, or cannot receive SMS —
+    and for bootstrapping before a provider is configured. Every use is
+    written to the activity log, so a manually confirmed number is never
+    indistinguishable from one that passed a real code.
+    """
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+
+    raw_phone = (payload.get("phone") or "").strip()
+    if raw_phone:
+        phone = normalise_phone_or_400(raw_phone)
+        clash = (
+            await db.execute(
+                select(User).where(User.phone == phone, User.id != user.id)
+            )
+        ).scalar_one_or_none()
+        if clash is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"מספר הטלפון משויך לחשבון {clash.email}",
+            )
+        user.phone = phone
+    elif not user.phone:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "למשתמש אין מספר טלפון — ציינו מספר",
+        )
+
+    user.phone_verified_at = datetime.now(timezone.utc)
+    await log_activity(
+        db,
+        "phone.verified",
+        user_id=user.id,
+        actor_id=admin.id,
+        details={"via": "admin", "phone_set": bool(raw_phone)},
+    )
+    await db.commit()
+    await db.refresh(user)
+    return UserOut.from_user(user)
+
+
 @router.post("/users/{user_id}/toggle-active", response_model=UserOut)
 async def toggle_active(
     user_id: int,
@@ -304,7 +356,8 @@ async def list_orders(
             # Fall back to the email when a Google account has no name set.
             customer_name=customer.full_name or customer.email,
             customer_email=customer.email,
-            customer_phone=customer.phone,
+            customer_phone=display_phone(customer.phone) if customer.phone else None,
+            customer_phone_verified=customer.phone_verified_at is not None,
         )
         for order, customer in rows.all()
     ]

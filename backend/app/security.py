@@ -78,6 +78,20 @@ async def get_current_user(
     return user
 
 
+async def get_verified_member(user: User = Depends(get_current_user)) -> User:
+    """A member who has confirmed their phone number.
+
+    Ordering requires this: the kitchen has to be able to call the customer,
+    so an unverified account must not be able to place an order.
+    """
+    if user.phone_verified_at is None:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "יש לאמת את מספר הטלפון לפני ביצוע הזמנה",
+        )
+    return user
+
+
 async def get_current_admin(user: User = Depends(get_current_user)) -> User:
     if user.role is not UserRole.admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")

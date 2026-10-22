@@ -7,6 +7,7 @@ import { OrdersPage } from './pages/OrdersPage'
 import { CoinsPage } from './pages/CoinsPage'
 import { RewardsPage } from './pages/RewardsPage'
 import { AdminPage } from './pages/AdminPage'
+import { VerifyPhonePage } from './pages/VerifyPhonePage'
 import { Logo } from './components/Logo'
 
 function Splash() {
@@ -25,6 +26,10 @@ function RequireAuth({ children, admin = false }: { children: JSX.Element; admin
   if (loading) return <Splash />
   if (!user) return <Navigate to="/login" replace />
   if (admin && user.role !== 'admin') return <Navigate to="/" replace />
+  // Every member must have a confirmed phone before using the app, so the
+  // kitchen can reach whoever placed an order. Admins manage the queue
+  // rather than order, so they are not held here.
+  if (!user.phone_verified && user.role !== 'admin') return <VerifyPhonePage />
   return children
 }
 

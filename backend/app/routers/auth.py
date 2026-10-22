@@ -12,7 +12,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..configuration import settings
 from ..db import get_db
 from ..models import CoinTxKind, User, UserRole
-from ..schemas import AdminLogin, UserOut
+from ..phone import normalise_phone_or_400
+from ..phone_auth import phone_taken_by_other, request_code, verify_code
+from ..schemas import (
+    AdminLogin,
+    PhoneCodeRequest,
+    PhoneCodeSent,
+    PhoneSignupIn,
+    PhoneVerifyIn,
+    UserOut,
+)
 from ..security import (
     clear_session_cookie,
     create_session_token,
@@ -241,7 +250,136 @@ async def admin_login(
     await db.commit()
 
     set_session_cookie(response, create_session_token(user))
-    return user
+    return UserOut.from_user(user)
+
+
+# ---------------------------------------------------------------------------
+# Phone verification
+#
+# Two entry points: sign up with a phone number (plus an email), or attach a
+# verified number to an account that signed in with Google. Either way every
+# member ends up with a confirmed number, which the kitchen relies on.
+# ---------------------------------------------------------------------------
+
+
+@router.post("/phone/request", response_model=PhoneCodeSent)
+async def request_phone_code(
+    payload: PhoneCodeRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PhoneCodeSent:
+    """Send a verification code. Open, so signup can start here."""
+    phone = normalise_phone_or_400(payload.phone)
+    dev_code = await request_code(db, phone)
+    await db.commit()
+    return PhoneCodeSent(
+        ok=True,
+        phone=phone,
+        resend_in_seconds=settings.sms.resend_cooldown_seconds,
+        dev_code=dev_code,
+    )
+
+
+@router.post("/phone/signup", response_model=UserOut)
+async def phone_signup(
+    payload: PhoneSignupIn,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> UserOut:
+    """Create or sign in to an account identified by a verified phone number."""
+    phone = normalise_phone_or_400(payload.phone)
+    await verify_code(db, phone, payload.code)
+
+    email = payload.email.lower()
+    user = (
+        await db.execute(select(User).where(User.phone == phone))
+    ).scalar_one_or_none()
+
+    if user is None:
+        # The email may already belong to a Google account; link rather than
+        # create a duplicate member.
+        existing = (
+            await db.execute(select(User).where(User.email == email))
+        ).scalar_one_or_none()
+        if existing is not None:
+            if existing.phone and existing.phone != phone:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "לכתובת המייל הזו מחובר מספר טלפון אחר",
+                )
+            user = existing
+            user.phone = phone
+        else:
+            user = User(
+                email=email,
+                full_name=payload.full_name.strip(),
+                phone=phone,
+                role=UserRole.member,
+            )
+            db.add(user)
+            await db.flush()
+            if settings.loyalty.signup_bonus_coins:
+                await record_coins(
+                    db,
+                    user,
+                    settings.loyalty.signup_bonus_coins,
+                    CoinTxKind.signup_bonus,
+                    reason="בונוס הרשמה למועדון",
+                )
+            await log_activity(
+                db, "user.registered", user_id=user.id, details={"via": "phone"}
+            )
+            invite = payload.ref or request.cookies.get(REFERRAL_COOKIE)
+            if invite:
+                await attach_referral(db, user, invite)
+
+    if not user.is_active:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This account has been disabled")
+
+    user.phone_verified_at = datetime.now(timezone.utc)
+    user.last_login_at = datetime.now(timezone.utc)
+    await log_activity(
+        db,
+        "phone.verified",
+        user_id=user.id,
+        details={"via": "signup"},
+        ip_address=request.client.host if request.client else None,
+    )
+    await db.commit()
+    await db.refresh(user)
+
+    set_session_cookie(response, create_session_token(user))
+    response.delete_cookie(REFERRAL_COOKIE, path="/")
+    return UserOut.from_user(user)
+
+
+@router.post("/phone/verify", response_model=UserOut)
+async def verify_my_phone(
+    payload: PhoneVerifyIn,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserOut:
+    """Attach a verified number to the signed-in account."""
+    phone = normalise_phone_or_400(payload.phone)
+    if await phone_taken_by_other(db, phone, user.id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "מספר הטלפון הזה משויך לחשבון אחר"
+        )
+
+    await verify_code(db, phone, payload.code)
+    user.phone = phone
+    user.phone_verified_at = datetime.now(timezone.utc)
+    await log_activity(
+        db,
+        "phone.verified",
+        user_id=user.id,
+        details={"via": "profile"},
+        ip_address=request.client.host if request.client else None,
+    )
+    await db.commit()
+    await db.refresh(user)
+    return UserOut.from_user(user)
 
 
 @router.post("/logout")
@@ -259,4 +397,4 @@ async def me(
     if await expire_coins(db, user):
         await db.commit()
         await db.refresh(user)
-    return user
+    return UserOut.from_user(user)

@@ -18,6 +18,7 @@ export interface User {
   phone: string | null
   role: UserRole
   is_active: boolean
+  phone_verified: boolean
   coin_balance: number
   lifetime_coins_earned: number
   created_at: string
@@ -83,6 +84,7 @@ export interface AdminOrder extends Order {
   customer_name: string
   customer_email: string
   customer_phone: string | null
+  customer_phone_verified: boolean
 }
 
 export interface CoinTransaction {
@@ -125,6 +127,13 @@ export interface Reward {
   is_active: boolean
 }
 
+export interface PhoneCodeSent {
+  ok: boolean
+  phone: string
+  resend_in_seconds: number
+  dev_code: string | null
+}
+
 export interface CoinRules {
   coins_per_shekel: number
   agorot_per_coin: number
@@ -157,6 +166,7 @@ export interface AdminStats {
 }
 
 export interface AdminUserRow extends User {
+  phone_verified_at: string | null
   order_count: number
   total_spent_agorot: number
 }

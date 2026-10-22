@@ -2,12 +2,13 @@ import { useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { googleLoginUrl } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { PhoneVerify } from '../components/PhoneVerify'
 import { Chickpea } from '../components/Chickpea'
 import { Logo } from '../components/Logo'
 
 export function LoginPage() {
-  const { user, loading, googleEnabled, loginAdmin } = useAuth()
-  const [showAdmin, setShowAdmin] = useState(false)
+  const { user, loading, googleEnabled, loginAdmin, refresh } = useAuth()
+  const [mode, setMode] = useState<'choose' | 'phone' | 'admin'>('choose')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -55,28 +56,20 @@ export function LoginPage() {
             </p>
           )}
 
-          {googleEnabled ? (
-            <a href={googleLoginUrl()} className="btn-primary w-full !py-3 text-base">
-              <GoogleMark />
-              התחברות עם Google
-            </a>
-          ) : (
-            <p className="rounded-2xl bg-chickpea/15 px-4 py-3 text-sm text-wine-dark">
-              התחברות Google אינה מוגדרת בשרת. הגדירו
-              <code className="mx-1 rounded bg-white/70 px-1">GOOGLE_CLIENT_ID</code>
-              ו-
-              <code className="mx-1 rounded bg-white/70 px-1">GOOGLE_CLIENT_SECRET</code>
-              בקובץ ‎.env‎.
-            </p>
-          )}
-
-          <div className="my-5 flex items-center gap-3 text-xs text-ink/40">
-            <span className="h-px flex-1 bg-ink/10" />
-            או
-            <span className="h-px flex-1 bg-ink/10" />
-          </div>
-
-          {showAdmin ? (
+          {mode === 'phone' ? (
+            <>
+              <h2 className="mb-3 text-center text-base text-wine">
+                כניסה עם מספר טלפון
+              </h2>
+              <PhoneVerify mode="signup" onVerified={() => void refresh()} />
+              <button
+                onClick={() => setMode('choose')}
+                className="mt-3 w-full text-sm text-ink/50 hover:text-ink"
+              >
+                חזרה
+              </button>
+            </>
+          ) : mode === 'admin' ? (
             <form onSubmit={submitAdmin} className="space-y-3">
               <input
                 className="input"
@@ -102,19 +95,46 @@ export function LoginPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setShowAdmin(false)}
+                onClick={() => setMode('choose')}
                 className="w-full text-sm text-ink/50 hover:text-ink"
               >
                 ביטול
               </button>
             </form>
           ) : (
-            <button
-              onClick={() => setShowAdmin(true)}
-              className="btn-ghost w-full"
-            >
-              כניסת מנהל מועדון
-            </button>
+            <>
+          {googleEnabled ? (
+            <a href={googleLoginUrl()} className="btn-primary w-full !py-3 text-base">
+              <GoogleMark />
+              התחברות עם Google
+            </a>
+          ) : (
+            <p className="rounded-2xl bg-chickpea/15 px-4 py-3 text-sm text-wine-dark">
+              התחברות Google אינה מוגדרת בשרת. הגדירו
+              <code className="mx-1 rounded bg-white/70 px-1">GOOGLE_CLIENT_ID</code>
+              ו-
+              <code className="mx-1 rounded bg-white/70 px-1">GOOGLE_CLIENT_SECRET</code>
+              בקובץ ‎.env‎.
+            </p>
+          )}
+
+          <div className="my-4 flex items-center gap-3 text-xs text-ink/40">
+            <span className="h-px flex-1 bg-ink/10" />
+            או
+            <span className="h-px flex-1 bg-ink/10" />
+          </div>
+
+          <button onClick={() => setMode('phone')} className="btn-teal w-full !py-3">
+            כניסה עם מספר טלפון
+          </button>
+
+          <button
+            onClick={() => setMode('admin')}
+            className="mt-5 w-full text-sm text-ink/50 hover:text-wine"
+          >
+            כניסת מנהל מועדון
+          </button>
+            </>
           )}
         </div>
 

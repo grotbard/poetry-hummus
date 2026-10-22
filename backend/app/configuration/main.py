@@ -19,6 +19,7 @@ the canonical names when overriding for a script or a test run.
 import os
 import secrets as _secrets
 from enum import StrEnum
+from typing import Literal
 from pathlib import Path
 from functools import lru_cache
 
@@ -156,6 +157,40 @@ class MenuSettings(BaseSettings):
     egg_price_agorot: int = Field(default=300, ge=0)
 
 
+class SmsSettings(BaseSettings):
+    """Phone verification delivery.
+
+    Without credentials the mock sender logs the code and (outside
+    production) returns it from the API, so the flow is testable for free.
+    """
+
+    model_config = _BASE_CONFIG | SettingsConfigDict(env_prefix="POETRY_SMS__")
+
+    provider: Literal["mock", "vonage"] = "mock"
+    vonage_api_key: str = ""
+    vonage_api_secret: SecretStr = SecretStr("")
+    # Alphanumeric sender IDs are allowed in Israel; keep it short.
+    sender_id: str = "HummusPoet"
+
+    code_length: int = Field(default=6, ge=4, le=8)
+    code_ttl_seconds: int = Field(default=300, ge=60)
+    # Wrong guesses allowed before the code is burned.
+    max_attempts: int = Field(default=5, ge=1)
+    # Minimum gap between code requests for one number.
+    resend_cooldown_seconds: int = Field(default=45, ge=0)
+    # Codes one number may request per hour, to cap spend on an abusive caller.
+    max_per_hour: int = Field(default=5, ge=1)
+    # Default country for local numbers typed without a prefix.
+    default_region_prefix: str = "+972"
+
+    @computed_field
+    @property
+    def configured(self) -> bool:
+        if self.provider == "mock":
+            return True
+        return bool(self.vonage_api_key and self.vonage_api_secret.get_secret_value())
+
+
 class LoyaltySettings(BaseSettings):
     """Poet Coin tuning."""
 
@@ -264,6 +299,7 @@ class Settings(BaseSettings):
     google: GoogleOAuthSettings = Field(default_factory=GoogleOAuthSettings)
     loyalty: LoyaltySettings = Field(default_factory=LoyaltySettings)
     menu: MenuSettings = Field(default_factory=MenuSettings)
+    sms: SmsSettings = Field(default_factory=SmsSettings)
     admin: AdminBootstrapSettings = Field(default_factory=AdminBootstrapSettings)
 
     @computed_field

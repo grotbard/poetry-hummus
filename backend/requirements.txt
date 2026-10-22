@@ -9,6 +9,7 @@ python-jose[cryptography]==3.3.0
 pyjwt[crypto]==2.10.1
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
+# httpx also carries the Vonage SMS calls; no vendor SDK needed.
 httpx==0.28.1
 python-multipart==0.0.20
 itsdangerous==2.2.0

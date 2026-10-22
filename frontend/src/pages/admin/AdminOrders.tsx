@@ -101,19 +101,20 @@ export function AdminOrders() {
                 </span>
                 <div className="min-w-0">
                   <p className="truncate font-bold text-ink">{order.customer_name}</p>
-                  <p className="truncate text-xs text-ink/50">
-                    <span className="font-mono tabular-nums">{order.order_number}</span>
-                    {order.customer_phone && (
-                      <>
-                        {' · '}
-                        <a
-                          href={`tel:${order.customer_phone.replace(/[^+\d]/g, '')}`}
-                          className="hover:text-wine hover:underline"
-                        >
-                          {order.customer_phone}
-                        </a>
-                      </>
-                    )}
+                  {order.customer_phone ? (
+                    <a
+                      href={`tel:${order.customer_phone.replace(/[^+\d]/g, '')}`}
+                      dir="ltr"
+                      className="block truncate font-mono text-sm tabular-nums
+                                 text-teal-deep hover:underline"
+                    >
+                      {order.customer_phone}
+                    </a>
+                  ) : (
+                    <p className="text-sm text-red-600">אין מספר טלפון</p>
+                  )}
+                  <p className="truncate font-mono text-xs tabular-nums text-ink/45">
+                    {order.order_number}
                   </p>
                 </div>
               </div>

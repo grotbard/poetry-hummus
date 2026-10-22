@@ -18,6 +18,36 @@ class AdminLogin(BaseModel):
     password: str = Field(min_length=1, max_length=256)
 
 
+class PhoneCodeRequest(BaseModel):
+    phone: str = Field(min_length=6, max_length=40)
+
+
+class PhoneCodeSent(BaseModel):
+    ok: bool
+    phone: str
+    resend_in_seconds: int
+    # Present only in development with the mock sender.
+    dev_code: str | None = None
+
+
+class PhoneSignupIn(BaseModel):
+    """Phone-first signup: the number plus an email and name."""
+
+    phone: str = Field(min_length=6, max_length=40)
+    code: str = Field(min_length=4, max_length=8)
+    email: EmailStr
+    full_name: str = Field(default="", max_length=200)
+    # Optional invite code, as on the Google path.
+    ref: str | None = Field(default=None, max_length=16)
+
+
+class PhoneVerifyIn(BaseModel):
+    """Attach a verified number to the signed-in account."""
+
+    phone: str = Field(min_length=6, max_length=40)
+    code: str = Field(min_length=4, max_length=8)
+
+
 class UserOut(ORMModel):
     id: int
     email: str
@@ -26,10 +56,17 @@ class UserOut(ORMModel):
     phone: str | None
     role: UserRole
     is_active: bool
+    phone_verified: bool = False
     coin_balance: int
     lifetime_coins_earned: int
     created_at: datetime
     last_login_at: datetime | None
+
+    @classmethod
+    def from_user(cls, user) -> "UserOut":
+        row = cls.model_validate(user)
+        row.phone_verified = user.phone_verified_at is not None
+        return row
 
 
 class ProfileUpdate(BaseModel):
@@ -153,6 +190,7 @@ class AdminOrderOut(OrderOut):
     customer_name: str
     customer_email: str
     customer_phone: str | None
+    customer_phone_verified: bool
 
 
 class OrderStatusUpdate(BaseModel):
@@ -232,6 +270,7 @@ class AdminUserRow(ORMModel):
     full_name: str
     picture_url: str | None
     phone: str | None
+    phone_verified_at: datetime | None
     role: UserRole
     is_active: bool
     coin_balance: int

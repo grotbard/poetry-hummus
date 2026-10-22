@@ -29,7 +29,7 @@ from ..schemas import (
     RewardOut,
     UserOut,
 )
-from ..security import get_current_user
+from ..security import get_current_user, get_verified_member
 from ..services import (
     agorot_per_coin,
     MAX_REDEEM_FRACTION,
@@ -120,7 +120,7 @@ async def my_orders(
 @router.post("/orders", response_model=OrderOut, status_code=status.HTTP_201_CREATED)
 async def place_order(
     payload: OrderCreate,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_verified_member),
     db: AsyncSession = Depends(get_db),
 ) -> Order:
     order = await create_order(

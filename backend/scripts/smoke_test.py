@@ -10,6 +10,7 @@ import os
 import pathlib
 import secrets
 import sys
+from datetime import datetime, timezone
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -64,12 +65,16 @@ async def main() -> int:
     async with handler.session() as db:
         await seed_all(db)
 
-    # Create a member directly; the Google flow can't run headless.
+    # Create a member directly; the Google flow can't run headless. The phone
+    # is pre-verified here because ordering now requires it; the verification
+    # endpoints themselves are exercised separately below.
     async with handler.session() as db:
         member = User(
             email="poet@example.com",
             full_name="בועז המשורר",
             google_sub="smoke-sub-1",
+            phone="+972500000001",
+            phone_verified_at=datetime.now(timezone.utc),
             role=UserRole.member,
         )
         db.add(member)
@@ -272,8 +277,63 @@ async def main() -> int:
               r.json()["coin_balance"] == balance_after_earn,
               str(r.json()["coin_balance"]))
 
+        print("\nPhone verification")
+        r = await client.post(
+            "/api/auth/phone/request", json={"phone": "054-7654321"}
+        )
+        check("code requested", r.status_code == 200, r.text[:150])
+        sent = r.json() if r.status_code == 200 else {}
+        check("number normalised to E.164", sent.get("phone") == "+972547654321",
+              str(sent.get("phone")))
+        code = sent.get("dev_code")
+        check("mock sender returns the code in dev", bool(code))
+
+        r = await client.post(
+            "/api/auth/phone/request", json={"phone": "054-7654321"}
+        )
+        check("a second request is rate limited", r.status_code == 429)
+
+        r = await client.post("/api/auth/phone/request", json={"phone": "nonsense"})
+        check("an invalid number is rejected", r.status_code == 400)
+
+        r = await client.post(
+            "/api/auth/phone/signup",
+            json={
+                "phone": "054-7654321",
+                "code": "000000",
+                "email": "wrongcode@example.com",
+            },
+        )
+        check("a wrong code is refused", r.status_code == 400)
+
+        r = await client.post(
+            "/api/auth/phone/signup",
+            json={
+                "phone": "054-7654321",
+                "code": code,
+                "email": "phonesignup@example.com",
+                "full_name": "רונית טלפון",
+            },
+        )
+        check("phone signup succeeds", r.status_code == 200, r.text[:200])
+        check("the new member is verified", r.json().get("phone_verified") is True)
+        # The signup set a session cookie for the member it just created, and
+        # get_current_user prefers a cookie over the Bearer header, so the
+        # original member's requests would otherwise run as the new account.
+        client.cookies.clear()
+
         print("\nRewards")
+        # Earning is 5% of a bill, so a few test orders do not reach the
+        # cheapest reward. Top the member up through the admin endpoint so the
+        # redemption path is still covered.
         cheap = min(rewards, key=lambda x: x["cost_coins"])
+        topup = await client.post(
+            f"/api/admin/users/{member_id}/coins",
+            cookies=admin_cookie,
+            json={"amount": cheap["cost_coins"], "reason": "smoke test top-up"},
+        )
+        check("admin top-up for the reward test", topup.status_code == 200,
+              topup.text[:200])
         r = await client.post(f"/api/rewards/{cheap['id']}/redeem", headers=member_auth)
         check("reward redeemed", r.status_code == 200, r.text[:150])
         check("voucher code issued", r.json().get("voucher_code", "").startswith("RW-"))
