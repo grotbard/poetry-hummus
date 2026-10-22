@@ -55,7 +55,7 @@ export function OrdersPage() {
         <article key={order.id} className="card p-5">
           <header className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h3 className="font-mono text-sm text-ink/60">{order.order_number}</h3>
+              <h3 className="font-mono text-sm tabular-nums text-ink/60">{order.order_number}</h3>
               <p className="text-xs text-ink/45">{dateTime(order.created_at)}</p>
             </div>
             <span className={`chip ${STATUS_STYLES[order.status]}`}>

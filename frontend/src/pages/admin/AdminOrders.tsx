@@ -102,7 +102,7 @@ export function AdminOrders() {
                 <div className="min-w-0">
                   <p className="truncate font-bold text-ink">{order.customer_name}</p>
                   <p className="truncate text-xs text-ink/50">
-                    <span className="font-mono">{order.order_number}</span>
+                    <span className="font-mono tabular-nums">{order.order_number}</span>
                     {order.customer_phone && (
                       <>
                         {' · '}

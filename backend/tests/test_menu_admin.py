@@ -80,7 +80,7 @@ async def test_delete_retires_item_with_order_history(db):
     db.add_all([admin, member, item])
     await db.flush()
 
-    order = Order(order_number="PH-TEST-0001", user_id=member.id)
+    order = Order(order_number="1111-2222-3333-4444", user_id=member.id)
     db.add(order)
     await db.flush()
     db.add(

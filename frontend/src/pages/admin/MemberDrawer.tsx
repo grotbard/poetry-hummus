@@ -161,7 +161,7 @@ export function MemberDrawer({ userId, onClose }: { userId: number; onClose: () 
                 {data.orders.map((order) => (
                   <li key={order.id} className="card px-4 py-3 text-sm">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-xs text-ink/55">
+                      <span className="font-mono text-xs tabular-nums text-ink/55">
                         {order.order_number}
                       </span>
                       <span className={`chip !px-2 !py-0.5 !text-[11px] ${STATUS_STYLES[order.status]}`}>

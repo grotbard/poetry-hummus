@@ -59,10 +59,40 @@ def feedback_window_open(order: Order, now: datetime | None = None) -> bool:
     return moment <= feedback_deadline(collected)
 
 
+# Digits only, grouped in fours: 1234-5678-9012-3456. Easy to read aloud
+# across a counter, and it leaks nothing about volume or timing.
+ORDER_NUMBER_GROUPS = 4
+ORDER_NUMBER_GROUP_SIZE = 4
+
+
 def new_order_number() -> str:
-    """Human-friendly, non-sequential order reference."""
-    stamp = datetime.now(timezone.utc).strftime("%y%m%d")
-    return f"PH-{stamp}-{secrets.choice(range(10000)):04d}"
+    """A random 16-digit reference, hyphenated into groups of four."""
+    groups = [
+        f"{secrets.randbelow(10 ** ORDER_NUMBER_GROUP_SIZE):0{ORDER_NUMBER_GROUP_SIZE}d}"
+        for _ in range(ORDER_NUMBER_GROUPS)
+    ]
+    return "-".join(groups)
+
+
+async def allocate_order_number(db: AsyncSession, attempts: int = 5) -> str:
+    """A reference not already taken.
+
+    A collision across 10^16 values is vanishingly unlikely, but the column is
+    unique, so retrying here keeps a freak clash from failing a real order.
+    """
+    for _ in range(attempts):
+        candidate = new_order_number()
+        taken = (
+            await db.execute(
+                select(Order.id).where(Order.order_number == candidate).limit(1)
+            )
+        ).scalar_one_or_none()
+        if taken is None:
+            return candidate
+    raise HTTPException(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "Could not allocate an order number, please try again",
+    )
 
 
 async def log_activity(
@@ -296,7 +326,7 @@ async def create_order(
     total = subtotal - discount
 
     order = Order(
-        order_number=new_order_number(),
+        order_number=await allocate_order_number(db),
         user_id=user.id,
         status=OrderStatus.pending,
         payment_status=PaymentStatus.unpaid,

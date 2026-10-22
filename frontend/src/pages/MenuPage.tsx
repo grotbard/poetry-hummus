@@ -156,7 +156,10 @@ export function MenuPage() {
         <Chickpea className="w-16 h-16 mx-auto coin-pop" />
         <h2 className="mt-4 text-2xl text-wine">ההזמנה נשלחה!</h2>
         <p className="mt-1 text-ink/60">
-          מספר הזמנה <strong className="font-mono">{placed.order_number}</strong>
+          מספר הזמנה{' '}
+          <strong className="font-mono text-base tabular-nums tracking-tight">
+            {placed.order_number}
+          </strong>
         </p>
         <p className="mt-4 text-sm text-ink/70">
           לתשלום: <strong>{shekels(placed.total_agorot)}</strong>

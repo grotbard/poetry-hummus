@@ -4,7 +4,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import func, select
 
-from app.models import CoinTransaction, CoinTxKind, MenuItem, OrderStatus
+from app.models import CoinTransaction, CoinTxKind, MenuItem, Order, OrderStatus
 from app.services import (
     agorot_per_coin,
     advance_order_status,
@@ -184,3 +184,48 @@ async def test_duplicate_cart_lines_are_merged(db, member):
     assert len(order.items) == 1
     assert order.items[0].quantity == 3
     assert order.subtotal_agorot == 4200 * 3
+
+
+# --- order numbers ---------------------------------------------------------
+
+
+def test_order_number_is_sixteen_digits_in_groups_of_four():
+    import re
+
+    from app.services import new_order_number
+
+    for _ in range(50):
+        number = new_order_number()
+        assert re.fullmatch(r"\d{4}-\d{4}-\d{4}-\d{4}", number), number
+
+
+def test_order_numbers_do_not_repeat():
+    from app.services import new_order_number
+
+    numbers = {new_order_number() for _ in range(500)}
+    assert len(numbers) == 500
+
+
+def test_order_number_leaks_no_date_or_sequence():
+    """The old format embedded the date, which exposed order volume."""
+    from datetime import datetime, timezone
+
+    from app.services import new_order_number
+
+    stamp = datetime.now(timezone.utc).strftime("%y%m%d")
+    assert all(stamp not in new_order_number() for _ in range(20))
+
+
+async def test_allocated_numbers_are_unique_in_the_database(db, member):
+    from app.services import allocate_order_number
+
+    first = await allocate_order_number(db)
+    assert isinstance(first, str)
+
+    # An existing row must never be handed out again.
+    order = Order(order_number=first, user_id=member.id)
+    db.add(order)
+    await db.flush()
+
+    for _ in range(20):
+        assert await allocate_order_number(db) != first

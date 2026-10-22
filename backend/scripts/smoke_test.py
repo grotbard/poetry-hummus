@@ -168,7 +168,9 @@ async def main() -> int:
         check("discount applied", order["discount_agorot"] == REDEEM * per_coin)
         check("total = subtotal - discount",
               order["total_agorot"] == expected_subtotal - REDEEM * per_coin)
-        check("order number formatted", order["order_number"].startswith("PH-"),
+        import re as _re
+        check("order number is 16 digits in groups of four",
+              bool(_re.fullmatch(r"\d{4}-\d{4}-\d{4}-\d{4}", order["order_number"])),
               order["order_number"])
 
         r = await client.get("/api/auth/me", headers=member_auth)
