@@ -68,7 +68,21 @@ class DatabaseHandler:
                 pool_recycle=self._config.pool_recycle_seconds,
                 pool_pre_ping=self._config.pool_pre_ping,
             )
-        return create_async_engine(self._config.url, **kwargs)
+        engine = create_async_engine(self._config.url, **kwargs)
+
+        if self._config.is_sqlite:
+            # SQLite ships with foreign keys disabled, so ON DELETE CASCADE
+            # silently does nothing and tests would diverge from Postgres,
+            # which always enforces them.
+            from sqlalchemy import event
+
+            @event.listens_for(engine.sync_engine, "connect")
+            def _enable_foreign_keys(dbapi_connection, _record):  # noqa: ANN001
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.close()
+
+        return engine
 
     @asynccontextmanager
     async def session(self) -> AsyncGenerator[AsyncSession, None]:

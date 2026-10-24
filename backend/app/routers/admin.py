@@ -341,6 +341,49 @@ async def toggle_active(
     return user
 
 
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: int,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Erase an account outright. Only for ones that never ordered.
+
+    Deleting cascades to the member's coin ledger and activity, which is
+    fine for a test or mistaken signup. An account with orders is refused:
+    removing it would destroy sales history the restaurant needs, and
+    disabling it achieves the same thing without the loss.
+    """
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    if user.id == admin.id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "You cannot delete your own account"
+        )
+
+    orders = (
+        await db.execute(
+            select(func.count(Order.id)).where(Order.user_id == user_id)
+        )
+    ).scalar() or 0
+    if orders:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"לחשבון יש {orders} הזמנות — אפשר לחסום אותו במקום למחוק",
+        )
+
+    # Logged against the admin, since the member's own rows are about to go.
+    await log_activity(
+        db,
+        "admin.user_deleted",
+        actor_id=admin.id,
+        details={"email": user.email, "phone": user.phone},
+    )
+    await db.delete(user)
+    await db.commit()
+
+
 @router.get("/orders", response_model=Paginated[AdminOrderOut])
 async def list_orders(
     status_filter: OrderStatus | None = Query(None, alias="status"),

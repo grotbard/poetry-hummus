@@ -187,3 +187,78 @@ def test_clickjacking_and_sniffing_headers_are_always_sent():
     headers = TestClient(application).get("/api/health").headers
     assert headers["x-frame-options"] == "DENY"
     assert headers["x-content-type-options"] == "nosniff"
+
+
+# --- deleting an account ---------------------------------------------------
+
+
+async def test_an_account_that_never_ordered_can_be_deleted(db):
+    from app.models import UserRole
+    from app.routers.admin import delete_user
+
+    admin = User(email="boss@example.com", role=UserRole.admin)
+    junk = User(email="junk@example.com", role=UserRole.member)
+    db.add_all([admin, junk])
+    await db.flush()
+    junk_id = junk.id
+
+    await delete_user(junk_id, admin=admin, db=db)
+    assert await db.get(User, junk_id) is None
+
+
+async def test_an_account_with_orders_is_refused(db):
+    """Sales history must survive; disable the account instead."""
+    from app.models import Order, UserRole
+    from app.routers.admin import delete_user
+
+    admin = User(email="boss@example.com", role=UserRole.admin)
+    customer = User(email="real@example.com", role=UserRole.member)
+    db.add_all([admin, customer])
+    await db.flush()
+    db.add(Order(order_number="1111-2222-3333-4444", user_id=customer.id))
+    await db.flush()
+
+    with pytest.raises(HTTPException) as exc:
+        await delete_user(customer.id, admin=admin, db=db)
+    assert exc.value.status_code == 409
+    assert await db.get(User, customer.id) is not None
+
+
+async def test_an_admin_cannot_delete_themselves(db):
+    from app.models import UserRole
+    from app.routers.admin import delete_user
+
+    admin = User(email="boss@example.com", role=UserRole.admin)
+    db.add(admin)
+    await db.flush()
+
+    with pytest.raises(HTTPException) as exc:
+        await delete_user(admin.id, admin=admin, db=db)
+    assert exc.value.status_code == 400
+
+
+async def test_deleting_takes_the_coin_ledger_with_it(db):
+    """No orphan rows pointing at a user that no longer exists."""
+    from sqlalchemy import func, select
+
+    from app.models import CoinTransaction, CoinTxKind, UserRole
+    from app.routers.admin import delete_user
+    from app.services import record_coins
+
+    admin = User(email="boss@example.com", role=UserRole.admin)
+    junk = User(email="junk@example.com", role=UserRole.member)
+    db.add_all([admin, junk])
+    await db.flush()
+    await record_coins(db, junk, 5, CoinTxKind.signup_bonus, reason="bonus")
+    await db.flush()
+    junk_id = junk.id
+
+    await delete_user(junk_id, admin=admin, db=db)
+    left = (
+        await db.execute(
+            select(func.count(CoinTransaction.id)).where(
+                CoinTransaction.user_id == junk_id
+            )
+        )
+    ).scalar()
+    assert left == 0

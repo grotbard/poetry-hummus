@@ -113,9 +113,14 @@ class User(Base):
         DateTime(timezone=True), default=None
     )
 
-    orders: Mapped[list[Order]] = relationship(back_populates="user")
+    orders: Mapped[list[Order]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", passive_deletes=True
+    )
     coin_transactions: Mapped[list[CoinTransaction]] = relationship(
-        back_populates="user", foreign_keys="CoinTransaction.user_id"
+        back_populates="user",
+        foreign_keys="CoinTransaction.user_id",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
 
