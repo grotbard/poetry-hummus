@@ -14,7 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .configuration import settings
 from .models import PhoneVerification, User
-from .sms import SmsDeliveryError, code_is_returned_to_client, get_sms_sender
+from .sms import (
+    CodeRejected,
+    SmsDeliveryError,
+    code_is_returned_to_client,
+    get_otp_provider,
+)
 
 
 def _hash_code(phone: str, code: str) -> str:
@@ -75,19 +80,23 @@ async def request_code(
             "נשלחו יותר מדי קודים למספר הזה. נסו שוב בעוד שעה",
         )
 
-    code = generate_code()
+    provider = get_otp_provider()
+    # TextMe mints and keeps the code itself, so there is nothing to hash
+    # here; the row exists only to drive the cooldown and hourly cap.
+    code = generate_code() if provider.stores_code_locally else None
+
     db.add(
         PhoneVerification(
             phone=phone,
-            code_hash=_hash_code(phone, code),
-            expires_at=now + timedelta(seconds=sms.code_ttl_seconds),
+            code_hash=_hash_code(phone, code) if code else "",
+            expires_at=now + timedelta(minutes=sms.code_valid_minutes),
             user_id=user_id,
         )
     )
     await db.flush()
 
     try:
-        await get_sms_sender().send_code(phone, code)
+        await provider.send_code(phone, code)
     except SmsDeliveryError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
@@ -97,8 +106,12 @@ async def request_code(
 async def verify_code(db: AsyncSession, phone: str, code: str) -> PhoneVerification:
     """Check a code, consuming it on success.
 
-    Raises HTTP 400 for a wrong, expired, or already-used code.
+    Raises HTTP 400 for a wrong, expired, missing, or already-used code.
     """
+    if not code or not code.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "קוד אימות חסר")
+
+    provider = get_otp_provider()
     now = datetime.now(timezone.utc)
     record = (
         await db.execute(
@@ -124,8 +137,24 @@ async def verify_code(db: AsyncSession, phone: str, code: str) -> PhoneVerificat
         )
 
     record.attempts += 1
-    # Constant-time, so a wrong code leaks nothing by timing.
-    if not hmac.compare_digest(record.code_hash, _hash_code(phone, code.strip())):
+
+    if provider.stores_code_locally:
+        # Constant-time, so a wrong code leaks nothing by timing.
+        matched = hmac.compare_digest(
+            record.code_hash, _hash_code(phone, code.strip())
+        )
+    else:
+        # The provider is the authority on its own code.
+        try:
+            await provider.validate_code(phone, code.strip())
+            matched = True
+        except CodeRejected:
+            matched = False
+        except SmsDeliveryError as exc:
+            await db.flush()
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+    if not matched:
         await db.flush()
         remaining = settings.sms.max_attempts - record.attempts
         detail = (

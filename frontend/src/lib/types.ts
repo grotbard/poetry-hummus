@@ -163,6 +163,7 @@ export interface AdminStats {
   coins_issued: number
   coins_redeemed: number
   active_orders: number
+  pending_phone_approvals: number
 }
 
 export interface AdminUserRow extends User {

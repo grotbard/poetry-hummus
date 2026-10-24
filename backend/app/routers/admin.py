@@ -101,6 +101,14 @@ async def stats(db: AsyncSession = Depends(get_db)) -> AdminStats:
                 )
             ),
         ),
+        pending_phone_approvals=await _scalar(
+            db,
+            select(func.count(User.id)).where(
+                User.phone_verified_at.is_(None),
+                User.role == UserRole.member,
+                User.is_active.is_(True),
+            ),
+        ),
     )
 
 
@@ -108,6 +116,7 @@ async def stats(db: AsyncSession = Depends(get_db)) -> AdminStats:
 async def list_users(
     q: str | None = None,
     role: UserRole | None = None,
+    pending_phone: bool = False,
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -146,10 +155,21 @@ async def list_users(
     if role is not None:
         stmt = stmt.where(User.role == role)
         count_stmt = count_stmt.where(User.role == role)
+    if pending_phone:
+        # Members stuck without a confirmed number — they cannot order until
+        # SMS reaches them or an admin approves them by hand.
+        waiting = (
+            User.phone_verified_at.is_(None),
+            User.role == UserRole.member,
+            User.is_active.is_(True),
+        )
+        stmt = stmt.where(*waiting)
+        count_stmt = count_stmt.where(*waiting)
 
     total = (await db.execute(count_stmt)).scalar() or 0
+    order = User.created_at if pending_phone else desc(User.created_at)
     rows = await db.execute(
-        stmt.order_by(desc(User.created_at)).offset((page - 1) * page_size).limit(page_size)
+        stmt.order_by(order).offset((page - 1) * page_size).limit(page_size)
     )
 
     items: list[AdminUserRow] = []

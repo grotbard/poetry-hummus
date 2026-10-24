@@ -67,6 +67,16 @@ services:
         sync: false     # set to https://<service>.onrender.com after first deploy
       - key: POETRY_FRONTEND_URL
         sync: false     # same host as above
+      # SMS verification through TextMe's OTP service. Without credentials
+      # the app falls back to the mock, which logs codes instead of sending
+      # them — fine in development, but it would silently stop new members
+      # signing up in production.
+      - key: POETRY_SMS__PROVIDER
+        value: textme
+      - key: POETRY_SMS__TEXTME_TOKEN
+        sync: false
+      - key: POETRY_SMS__TEXTME_USERNAME
+        sync: false
       - key: POETRY_GOOGLE__CLIENT_ID
         sync: false
       - key: POETRY_GOOGLE__CLIENT_SECRET

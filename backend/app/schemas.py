@@ -299,6 +299,8 @@ class AdminStats(BaseModel):
     coins_issued: int
     coins_redeemed: int
     active_orders: int
+    # Members who cannot order until their phone is confirmed.
+    pending_phone_approvals: int = 0
 
 
 T = TypeVar("T")

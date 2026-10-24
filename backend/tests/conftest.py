@@ -10,6 +10,11 @@ os.environ["POETRY_DB__URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ["POETRY_SECURITY__SECRET_KEY"] = secrets.token_urlsafe(32)
 os.environ["POETRY_ADMIN__EMAIL"] = ""
 os.environ["POETRY_ADMIN__PASSWORD"] = ""
+# Always the mock: the suite must never send a real message, and request_code
+# only returns the code when the mock is in use.
+os.environ["POETRY_SMS__PROVIDER"] = "mock"
+os.environ["POETRY_SMS__TEXTME_TOKEN"] = ""
+os.environ["POETRY_SMS__TEXTME_USERNAME"] = ""
 for _legacy in ("DATABASE_URL", "SECRET_KEY", "APP_ENV",
                 "BOOTSTRAP_ADMIN_EMAIL", "BOOTSTRAP_ADMIN_PASSWORD"):
     os.environ.pop(_legacy, None)

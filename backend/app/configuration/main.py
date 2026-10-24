@@ -160,35 +160,46 @@ class MenuSettings(BaseSettings):
 class SmsSettings(BaseSettings):
     """Phone verification delivery.
 
-    Without credentials the mock sender logs the code and (outside
-    production) returns it from the API, so the flow is testable for free.
+    TextMe owns the one-time code: it generates, sends and validates it, so
+    this app never stores one. Without credentials the mock takes over, which
+    issues and checks codes locally and logs them, so the flow is testable
+    for free.
     """
 
     model_config = _BASE_CONFIG | SettingsConfigDict(env_prefix="POETRY_SMS__")
 
-    provider: Literal["mock", "vonage"] = "mock"
-    vonage_api_key: str = ""
-    vonage_api_secret: SecretStr = SecretStr("")
-    # Alphanumeric sender IDs are allowed in Israel; keep it short.
-    sender_id: str = "HummusPoet"
+    provider: Literal["mock", "textme"] = "mock"
 
-    code_length: int = Field(default=6, ge=4, le=8)
-    code_ttl_seconds: int = Field(default=300, ge=60)
-    # Wrong guesses allowed before the code is burned.
-    max_attempts: int = Field(default=5, ge=1)
-    # Minimum gap between code requests for one number.
+    # https://docs.textme.co.il — one endpoint, distinguished by root element.
+    textme_url: str = "https://my.textme.co.il/api"
+    textme_token: SecretStr = SecretStr("")
+    # The account name TextMe knows you by, sent as send_otp.user.username.
+    textme_username: str = ""
+    # Sender shown on the message; must be verified with TextMe first.
+    textme_sender: str = "HummusPoet"
+    # Separates codes when one account serves several apps.
+    textme_app_id: str = "1"
+    timeout_seconds: float = Field(default=15.0, ge=1)
+
+    # TextMe caps these: 3-5 tries, 1-15 minutes.
+    max_attempts: int = Field(default=3, ge=3, le=5)
+    code_valid_minutes: int = Field(default=5, ge=1, le=15)
+
+    # Local guards, independent of the provider: a cooldown between requests
+    # and an hourly cap, so a hostile caller cannot run up the bill.
     resend_cooldown_seconds: int = Field(default=45, ge=0)
-    # Codes one number may request per hour, to cap spend on an abusive caller.
     max_per_hour: int = Field(default=5, ge=1)
     # Default country for local numbers typed without a prefix.
     default_region_prefix: str = "+972"
+    # Length of the code the mock generates; TextMe's own is six digits.
+    code_length: int = Field(default=6, ge=4, le=8)
 
     @computed_field
     @property
     def configured(self) -> bool:
         if self.provider == "mock":
             return True
-        return bool(self.vonage_api_key and self.vonage_api_secret.get_secret_value())
+        return bool(self.textme_token.get_secret_value() and self.textme_username)
 
 
 class LoyaltySettings(BaseSettings):

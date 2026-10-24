@@ -13,6 +13,11 @@ dist/
 .env
 .env.local
 *.pem
+# Local credential notes — never commit these
+passwords
+secrets
+*.secrets
+
 # Editor swap files — a swap of .env holds the same secrets
 *.swp
 *.swo

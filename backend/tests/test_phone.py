@@ -297,3 +297,207 @@ async def test_verifying_without_a_number_needs_one_on_file(db, member):
     await db.flush()
     result = await verify_user_phone(member.id, {}, admin=admin, db=db)
     assert result.phone_verified is True
+
+
+# --- the TextMe OTP provider ----------------------------------------------
+
+
+def _textme_settings(monkeypatch):
+    from app.configuration import SmsSettings
+
+    return SmsSettings(
+        provider="textme",
+        textme_token="tok",
+        textme_username="user",
+        _env_file=None,
+    )
+
+
+def test_textme_needs_both_a_token_and_a_username():
+    from app.configuration import SmsSettings
+
+    base = dict(provider="textme", _env_file=None)
+    assert SmsSettings(**base).configured is False
+    assert SmsSettings(textme_token="t", **base).configured is False
+    assert SmsSettings(textme_username="u", **base).configured is False
+    assert SmsSettings(textme_token="t", textme_username="u", **base).configured is True
+
+
+def test_an_israeli_number_is_sent_in_local_form():
+    """TextMe documents 05XXXXXXXX, not E.164."""
+    from app.sms import _local_phone
+
+    assert _local_phone("+972542718281") == "0542718281"
+    # Anything else loses only the plus.
+    assert _local_phone("+447911123456") == "447911123456"
+
+
+def test_textme_does_not_keep_the_code_locally():
+    """The provider owns it, so nothing to hash or store here."""
+    from app.sms import MockProvider, TextMeProvider
+
+    assert TextMeProvider.stores_code_locally is False
+    assert MockProvider.stores_code_locally is True
+
+
+async def test_a_rejected_code_is_the_members_fault_not_an_outage(monkeypatch):
+    """Status 12 means a wrong code; anything else is a real failure."""
+    from app.sms import CodeRejected, SmsDeliveryError, TextMeProvider
+
+    provider = TextMeProvider()
+
+    async def wrong_code(body):
+        return {"status": 12, "message": "not validated"}
+
+    monkeypatch.setattr(provider, "_call", wrong_code)
+    with pytest.raises(CodeRejected):
+        await provider.validate_code("+972542718281", "000000")
+
+    async def provider_broken(body):
+        return {"status": 99, "message": "account suspended"}
+
+    monkeypatch.setattr(provider, "_call", provider_broken)
+    with pytest.raises(SmsDeliveryError):
+        await provider.validate_code("+972542718281", "000000")
+
+
+async def test_a_good_code_passes(monkeypatch):
+    from app.sms import TextMeProvider
+
+    provider = TextMeProvider()
+
+    async def ok(body):
+        return {"status": 0, "message": "The code successfully validated"}
+
+    monkeypatch.setattr(provider, "_call", ok)
+    await provider.validate_code("+972542718281", "123456")
+
+
+async def test_a_refused_send_raises(monkeypatch):
+    from app.sms import SmsDeliveryError, TextMeProvider
+
+    provider = TextMeProvider()
+
+    async def refused(body):
+        return {"status": 7, "message": "sender not verified"}
+
+    monkeypatch.setattr(provider, "_call", refused)
+    with pytest.raises(SmsDeliveryError):
+        await provider.send_code("+972542718281", None)
+
+
+async def test_the_send_body_matches_the_documented_shape(monkeypatch):
+    """Field names come from TextMe's OpenAPI spec; a typo fails silently."""
+    from app.sms import TextMeProvider
+
+    captured: dict = {}
+    provider = TextMeProvider()
+
+    async def capture(body):
+        captured.update(body)
+        return {"status": 0, "code": "448431", "message": "ok"}
+
+    monkeypatch.setattr(provider, "_call", capture)
+    await provider.send_code("+972542718281", None)
+
+    sent = captured["send_otp"]
+    assert set(sent) >= {"user", "phone", "source"}, "required fields missing"
+    assert sent["user"]["username"] == settings.sms.textme_username
+    assert sent["phone"] == "0542718281"
+    assert "[code]" in sent["text"], "TextMe substitutes [code]"
+
+
+@pytest.mark.parametrize("code", [None, "", "   "])
+async def test_a_missing_code_is_rejected_not_a_crash(db, code):
+    """request_code returns None when a real provider is in use, and that
+    value reached verify_code as a None .strip() crash."""
+    await request_code(db, "+972528498629")
+    await db.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        await verify_code(db, "+972528498629", code)
+    assert exc.value.status_code == 400
+
+
+# --- the admin approval queue ---------------------------------------------
+
+
+async def test_the_pending_filter_finds_only_members_who_are_stuck(db):
+    """The queue must not surface admins, verified members, or blocked ones."""
+    from datetime import datetime, timezone
+
+    from app.routers.admin import list_users
+
+    stuck = User(email="stuck@example.com", role=UserRole.member)
+    done = User(
+        email="done@example.com",
+        role=UserRole.member,
+        phone="+972500000001",
+        phone_verified_at=datetime.now(timezone.utc),
+    )
+    blocked = User(
+        email="blocked@example.com", role=UserRole.member, is_active=False
+    )
+    boss = User(email="boss@example.com", role=UserRole.admin)
+    db.add_all([stuck, done, blocked, boss])
+    await db.flush()
+
+    page = await list_users(pending_phone=True, page=1, page_size=25, db=db)
+    emails = {row.email for row in page.items}
+    assert "stuck@example.com" in emails
+    assert "done@example.com" not in emails, "already verified"
+    assert "blocked@example.com" not in emails, "disabled accounts are not waiting"
+    assert "boss@example.com" not in emails, "admins are exempt"
+
+
+async def test_the_queue_puts_the_longest_wait_first(db):
+    """Triage order: whoever has been stuck longest is served first."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.routers.admin import list_users
+
+    now = datetime.now(timezone.utc)
+    old = User(
+        email="old@example.com", role=UserRole.member, created_at=now - timedelta(days=3)
+    )
+    new = User(
+        email="new@example.com", role=UserRole.member, created_at=now - timedelta(hours=1)
+    )
+    db.add_all([new, old])
+    await db.flush()
+
+    page = await list_users(pending_phone=True, page=1, page_size=25, db=db)
+    assert [r.email for r in page.items][:2] == ["old@example.com", "new@example.com"]
+
+
+async def test_approving_removes_a_member_from_the_queue(db):
+    from app.routers.admin import list_users, verify_user_phone
+
+    admin = User(email="boss@example.com", role=UserRole.admin)
+    stuck = User(email="stuck@example.com", role=UserRole.member)
+    db.add_all([admin, stuck])
+    await db.flush()
+
+    assert any(r.email == "stuck@example.com" for r in (await list_users(pending_phone=True, page=1, page_size=25, db=db)).items)
+
+    await verify_user_phone(stuck.id, {"phone": "054-2718281"}, admin=admin, db=db)
+
+    remaining = await list_users(pending_phone=True, page=1, page_size=25, db=db)
+    assert not any(r.email == "stuck@example.com" for r in remaining.items)
+
+
+async def test_the_stats_count_matches_the_queue(db):
+    """The tab badge and the list must not disagree."""
+    from app.routers.admin import list_users, stats
+
+    db.add_all(
+        [
+            User(email="a@example.com", role=UserRole.member),
+            User(email="b@example.com", role=UserRole.member),
+        ]
+    )
+    await db.flush()
+
+    counted = (await stats(db=db)).pending_phone_approvals
+    listed = (await list_users(pending_phone=True, page=1, page_size=25, db=db)).total
+    assert counted == listed == 2
