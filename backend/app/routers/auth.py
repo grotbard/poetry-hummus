@@ -15,7 +15,9 @@ from ..models import CoinTxKind, User, UserRole
 from ..phone import normalise_phone_or_400
 from ..phone_auth import phone_taken_by_other, request_code, verify_code
 from ..schemas import (
+    AdminApprovalRequest,
     AdminLogin,
+    SelfApprovalRequest,
     PhoneCodeRequest,
     PhoneCodeSent,
     PhoneSignupIn,
@@ -350,6 +352,120 @@ async def phone_signup(
 
     set_session_cookie(response, create_session_token(user))
     response.delete_cookie(REFERRAL_COOKIE, path="/")
+    return UserOut.from_user(user)
+
+
+@router.post("/phone/request-approval", response_model=UserOut)
+async def request_admin_approval(
+    payload: AdminApprovalRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> UserOut:
+    """Create the account unverified and queue it for an admin.
+
+    The fallback when the SMS never arrives. The member is signed in but
+    cannot order until an admin confirms the number, so a bogus request buys
+    nothing — it only puts a row in front of a human.
+    """
+    phone = normalise_phone_or_400(payload.phone)
+    email = payload.email.lower()
+
+    user = (
+        await db.execute(select(User).where(User.phone == phone))
+    ).scalar_one_or_none()
+    if user is None:
+        user = (
+            await db.execute(select(User).where(User.email == email))
+        ).scalar_one_or_none()
+
+    if user is None:
+        user = User(
+            email=email,
+            full_name=payload.full_name.strip(),
+            phone=phone,
+            role=UserRole.member,
+        )
+        db.add(user)
+        await db.flush()
+        if settings.loyalty.signup_bonus_coins:
+            await record_coins(
+                db,
+                user,
+                settings.loyalty.signup_bonus_coins,
+                CoinTxKind.signup_bonus,
+                reason="בונוס הרשמה למועדון",
+            )
+        await log_activity(
+            db, "user.registered", user_id=user.id, details={"via": "phone_approval"}
+        )
+        invite = payload.ref or request.cookies.get(REFERRAL_COOKIE)
+        if invite:
+            await attach_referral(db, user, invite)
+    else:
+        if user.phone and user.phone != phone:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "לכתובת המייל הזו מחובר מספר טלפון אחר",
+            )
+        if user.phone_verified_at is not None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "המספר כבר מאומת — אפשר להתחבר רגיל",
+            )
+        user.phone = phone
+
+    if not user.is_active:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This account has been disabled")
+
+    user.approval_requested_at = datetime.now(timezone.utc)
+    user.last_login_at = datetime.now(timezone.utc)
+    await log_activity(
+        db,
+        "phone.approval_requested",
+        user_id=user.id,
+        details={"phone": phone},
+        ip_address=request.client.host if request.client else None,
+    )
+    await db.commit()
+    await db.refresh(user)
+
+    # Signed in, but the verification gate still blocks ordering.
+    set_session_cookie(response, create_session_token(user))
+    response.delete_cookie(REFERRAL_COOKIE, path="/")
+    return UserOut.from_user(user)
+
+
+@router.post("/phone/request-approval-self", response_model=UserOut)
+async def request_admin_approval_for_me(
+    payload: SelfApprovalRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserOut:
+    """Same fallback, for a member already signed in through Google."""
+    if user.phone_verified_at is not None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "מספר הטלפון שלכם כבר מאומת"
+        )
+
+    phone = normalise_phone_or_400(payload.phone)
+    if await phone_taken_by_other(db, phone, user.id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "מספר הטלפון הזה משויך לחשבון אחר"
+        )
+    # Record it unverified so the admin sees which number to confirm.
+    user.phone = phone
+    user.approval_requested_at = datetime.now(timezone.utc)
+    await log_activity(
+        db,
+        "phone.approval_requested",
+        user_id=user.id,
+        details={"phone": phone, "via": "gate"},
+        ip_address=request.client.host if request.client else None,
+    )
+    await db.commit()
+    await db.refresh(user)
     return UserOut.from_user(user)
 
 

@@ -501,3 +501,127 @@ async def test_the_stats_count_matches_the_queue(db):
     counted = (await stats(db=db)).pending_phone_approvals
     listed = (await list_users(pending_phone=True, page=1, page_size=25, db=db)).total
     assert counted == listed == 2
+
+
+# --- asking an admin instead of waiting for an SMS ------------------------
+
+
+async def test_requesting_approval_creates_an_unverified_account(db):
+    """The member gets in but cannot order until a human confirms."""
+    from app.routers.admin import list_users
+    from app.routers.auth import request_admin_approval
+    from app.schemas import AdminApprovalRequest
+
+    class FakeRequest:
+        cookies: dict = {}
+        client = None
+
+    class FakeResponse:
+        def set_cookie(self, *a, **k): ...
+        def delete_cookie(self, *a, **k): ...
+
+    result = await request_admin_approval(
+        AdminApprovalRequest(
+            phone="054-9998887", email="noSMS@example.com", full_name="לא קיבל"
+        ),
+        request=FakeRequest(),
+        response=FakeResponse(),
+        db=db,
+    )
+
+    assert result.phone_verified is False, "must not shortcut verification"
+    queue = await list_users(pending_phone=True, page=1, page_size=25, db=db)
+    assert any(r.email == "nosms@example.com" for r in queue.items)
+
+
+async def test_an_explicit_request_sorts_above_a_passive_signup(db):
+    """Someone who asked for help is triaged before someone who stalled."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.routers.admin import list_users
+
+    now = datetime.now(timezone.utc)
+    # The passive one registered earlier, so date alone would rank it first.
+    passive = User(
+        email="passive@example.com",
+        role=UserRole.member,
+        created_at=now - timedelta(days=5),
+    )
+    asked = User(
+        email="asked@example.com",
+        role=UserRole.member,
+        created_at=now - timedelta(hours=1),
+        approval_requested_at=now,
+    )
+    db.add_all([passive, asked])
+    await db.flush()
+
+    queue = await list_users(pending_phone=True, page=1, page_size=25, db=db)
+    emails = [r.email for r in queue.items]
+    assert emails.index("asked@example.com") < emails.index("passive@example.com")
+
+
+async def test_approval_cannot_be_requested_for_a_verified_number(db, member):
+    from datetime import datetime, timezone
+
+    from app.routers.auth import request_admin_approval_for_me
+    from app.schemas import SelfApprovalRequest
+
+    class FakeRequest:
+        cookies: dict = {}
+        client = None
+
+    member.phone = "+972542718281"
+    member.phone_verified_at = datetime.now(timezone.utc)
+    await db.flush()
+
+    with pytest.raises(HTTPException) as exc:
+        await request_admin_approval_for_me(
+            SelfApprovalRequest(phone="054-2718281"),
+            request=FakeRequest(),
+            user=member,
+            db=db,
+        )
+    assert exc.value.status_code == 400
+
+
+async def test_a_requested_number_already_held_elsewhere_is_refused(db, member):
+    from app.routers.auth import request_admin_approval_for_me
+    from app.schemas import SelfApprovalRequest
+
+    class FakeRequest:
+        cookies: dict = {}
+        client = None
+
+    other = User(email="other@example.com", role=UserRole.member, phone="+972542718281")
+    db.add(other)
+    await db.flush()
+
+    with pytest.raises(HTTPException) as exc:
+        await request_admin_approval_for_me(
+            SelfApprovalRequest(phone="054-2718281"),
+            request=FakeRequest(),
+            user=member,
+            db=db,
+        )
+    assert exc.value.status_code == 409
+
+
+async def test_the_requested_number_is_recorded_for_the_admin(db, member):
+    """The admin needs to see which number to confirm."""
+    from app.routers.auth import request_admin_approval_for_me
+    from app.schemas import SelfApprovalRequest
+
+    class FakeRequest:
+        cookies: dict = {}
+        client = None
+
+    await request_admin_approval_for_me(
+        SelfApprovalRequest(phone="054-2718281"),
+        request=FakeRequest(),
+        user=member,
+        db=db,
+    )
+    assert member.phone == "+972542718281"
+    assert member.approval_requested_at is not None
+    assert member.phone_verified_at is None, "still not verified"

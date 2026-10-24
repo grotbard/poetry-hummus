@@ -24,6 +24,7 @@ export function PhoneVerify({
   const [cooldown, setCooldown] = useState(0)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [requested, setRequested] = useState(false)
 
   // Countdown until another code may be requested.
   useEffect(() => {
@@ -43,6 +44,36 @@ export function PhoneVerify({
       setStep('code')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'שליחת הקוד נכשלה')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Give up on the SMS and let an admin confirm the number instead. */
+  async function askAdmin() {
+    setError('')
+    setBusy(true)
+    try {
+      const ref = (() => {
+        try {
+          return sessionStorage.getItem('poet_ref')
+        } catch {
+          return null
+        }
+      })()
+      const user =
+        mode === 'signup'
+          ? await api.post<User>('/api/auth/phone/request-approval', {
+              phone,
+              email,
+              full_name: name,
+              ref,
+            })
+          : await api.post<User>('/api/auth/phone/request-approval-self', { phone })
+      setRequested(true)
+      onVerified(user)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'הבקשה נכשלה')
     } finally {
       setBusy(false)
     }
@@ -173,6 +204,20 @@ export function PhoneVerify({
           className="text-ink/55 hover:text-wine disabled:opacity-40"
         >
           {cooldown > 0 ? `שליחה חוזרת בעוד ${cooldown}` : 'שליחת קוד חדש'}
+        </button>
+      </div>
+
+      {/* When the SMS never arrives, a human can confirm the number. */}
+      <div className="border-t border-ink/10 pt-3">
+        <p className="mb-2 text-center text-xs text-ink/45">
+          לא קיבלתם את ההודעה?
+        </p>
+        <button
+          onClick={askAdmin}
+          disabled={busy || requested}
+          className="btn-ghost w-full !py-2 text-sm"
+        >
+          {requested ? 'הבקשה נשלחה ✓' : 'בקשת אישור מנהל'}
         </button>
       </div>
     </div>

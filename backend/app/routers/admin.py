@@ -167,9 +167,14 @@ async def list_users(
         count_stmt = count_stmt.where(*waiting)
 
     total = (await db.execute(count_stmt)).scalar() or 0
-    order = User.created_at if pending_phone else desc(User.created_at)
+    # Explicit requests first, then by how long they have waited.
+    order = (
+        (desc(User.approval_requested_at.is_not(None)), User.created_at)
+        if pending_phone
+        else (desc(User.created_at),)
+    )
     rows = await db.execute(
-        stmt.order_by(order).offset((page - 1) * page_size).limit(page_size)
+        stmt.order_by(*order).offset((page - 1) * page_size).limit(page_size)
     )
 
     items: list[AdminUserRow] = []

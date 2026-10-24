@@ -85,6 +85,11 @@ class User(Base):
     phone_verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
     )
+    # Set when the member gave up on the SMS and asked an admin to confirm
+    # their number by hand. Surfaces them at the top of the approval queue.
+    approval_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
 
     # Share code in this member's invite link. Assigned on first use.
     referral_code: Mapped[str | None] = mapped_column(

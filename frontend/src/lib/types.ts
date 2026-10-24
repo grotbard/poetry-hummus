@@ -168,6 +168,7 @@ export interface AdminStats {
 
 export interface AdminUserRow extends User {
   phone_verified_at: string | null
+  approval_requested_at: string | null
   order_count: number
   total_spent_agorot: number
 }

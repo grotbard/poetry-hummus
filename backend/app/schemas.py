@@ -41,6 +41,21 @@ class PhoneSignupIn(BaseModel):
     ref: str | None = Field(default=None, max_length=16)
 
 
+class AdminApprovalRequest(BaseModel):
+    """Give up on the SMS and ask an admin to confirm the number by hand."""
+
+    phone: str = Field(min_length=6, max_length=40)
+    email: EmailStr
+    full_name: str = Field(default="", max_length=200)
+    ref: str | None = Field(default=None, max_length=16)
+
+
+class SelfApprovalRequest(BaseModel):
+    """Ask an admin to confirm the number typed at the verification gate."""
+
+    phone: str = Field(min_length=6, max_length=40)
+
+
 class PhoneVerifyIn(BaseModel):
     """Attach a verified number to the signed-in account."""
 
@@ -271,6 +286,7 @@ class AdminUserRow(ORMModel):
     picture_url: str | None
     phone: str | None
     phone_verified_at: datetime | None
+    approval_requested_at: datetime | None
     role: UserRole
     is_active: bool
     coin_balance: int
