@@ -2,7 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Response, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -62,6 +62,26 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Headers that only make sense once TLS terminates in front of us.
+
+    HSTS matters most: without it a browser that tries http:// first sends
+    one unencrypted request — carrying the session cookie, or a password on
+    a login POST — before the redirect to https. Only sent in production,
+    since pinning localhost to https would break development.
+    """
+    response = await call_next(request)
+    if settings.is_production:
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    return response
+
 
 app.add_middleware(
     CORSMiddleware,

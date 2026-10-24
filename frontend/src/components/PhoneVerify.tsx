@@ -21,6 +21,7 @@ export function PhoneVerify({
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
   const [devCode, setDevCode] = useState<string | null>(null)
   const [cooldown, setCooldown] = useState(0)
   const [error, setError] = useState('')
@@ -116,7 +117,10 @@ export function PhoneVerify({
 
   if (step === 'phone') {
     const detailsNeeded = mode === 'signup'
-    const passwordOk = !detailsNeeded || password.length >= 8
+    // Only complain once they have started typing the confirmation.
+    const mismatch = confirm.length > 0 && password !== confirm
+    const passwordOk =
+      !detailsNeeded || (password.length >= 8 && password === confirm)
     const ready =
       phone.trim().length >= 9 &&
       (!detailsNeeded || email.trim().includes('@')) &&
@@ -163,9 +167,22 @@ export function PhoneVerify({
               autoComplete="new-password"
               dir="ltr"
             />
-            <p className="-mt-1 text-xs text-ink/45">
-              עם הסיסמה תוכלו להיכנס בפעם הבאה בלי קוד אימות
-            </p>
+            <input
+              className={`input ${mismatch ? 'border-red-400 focus:border-red-500' : ''}`}
+              type="password"
+              placeholder="אימות סיסמה"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              autoComplete="new-password"
+              dir="ltr"
+            />
+            {mismatch ? (
+              <p className="-mt-1 text-xs text-red-600">הסיסמאות אינן תואמות</p>
+            ) : (
+              <p className="-mt-1 text-xs text-ink/45">
+                עם הסיסמה תוכלו להיכנס בפעם הבאה בלי קוד אימות
+              </p>
+            )}
           </>
         )}
         {error && <p className="text-sm text-red-600">{error}</p>}

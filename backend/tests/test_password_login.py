@@ -134,3 +134,56 @@ async def test_a_short_password_is_rejected(db):
 
     with pytest.raises(ValidationError):
         SetPasswordIn(password="short")
+
+
+# --- how the password is kept ---------------------------------------------
+
+
+def test_the_password_is_never_recoverable():
+    """Storage is one-way: not even full database access reveals it."""
+    from app.security import hash_password, verify_password
+
+    secret = "correct horse battery staple"
+    stored = hash_password(secret)
+
+    assert secret not in stored
+    assert stored.startswith("$2"), "bcrypt"
+    assert verify_password(secret, stored) is True
+    assert verify_password("wrong", stored) is False
+
+
+def test_the_same_password_hashes_differently_each_time():
+    """A per-user salt, so one leaked hash says nothing about another."""
+    from app.security import hash_password, verify_password
+
+    first = hash_password("same-password")
+    second = hash_password("same-password")
+    assert first != second
+    assert verify_password("same-password", first)
+    assert verify_password("same-password", second)
+
+
+def test_hsts_is_sent_only_in_production(monkeypatch):
+    """Pinning localhost to https would break development."""
+    from fastapi.testclient import TestClient
+
+    import app.main as main_module
+
+    client = TestClient(main_module.app)
+
+    monkeypatch.setattr(main_module.settings.__class__, "is_production", property(lambda self: False))
+    assert "strict-transport-security" not in client.get("/api/health").headers
+
+    monkeypatch.setattr(main_module.settings.__class__, "is_production", property(lambda self: True))
+    headers = client.get("/api/health").headers
+    assert "max-age=" in headers["strict-transport-security"]
+
+
+def test_clickjacking_and_sniffing_headers_are_always_sent():
+    from fastapi.testclient import TestClient
+
+    from app.main import app as application
+
+    headers = TestClient(application).get("/api/health").headers
+    assert headers["x-frame-options"] == "DENY"
+    assert headers["x-content-type-options"] == "nosniff"
