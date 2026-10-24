@@ -19,6 +19,7 @@ export interface User {
   role: UserRole
   is_active: boolean
   phone_verified: boolean
+  has_password: boolean
   coin_balance: number
   lifetime_coins_earned: number
   created_at: string

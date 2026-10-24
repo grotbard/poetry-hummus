@@ -9,6 +9,7 @@ interface AuthState {
   refresh: () => Promise<void>
   logout: () => Promise<void>
   loginAdmin: (email: string, password: string) => Promise<void>
+  loginMember: (identifier: string, password: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthState | null>(null)
@@ -51,9 +52,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(u)
   }
 
+  async function loginMember(identifier: string, password: string) {
+    const u = await api.post<User>('/api/auth/login', { identifier, password })
+    setUser(u)
+  }
+
   return (
     <AuthContext.Provider
-      value={{ user, loading, googleEnabled, refresh, logout, loginAdmin }}
+      value={{
+        user,
+        loading,
+        googleEnabled,
+        refresh,
+        logout,
+        loginAdmin,
+        loginMember,
+      }}
     >
       {children}
     </AuthContext.Provider>

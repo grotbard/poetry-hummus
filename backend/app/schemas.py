@@ -10,12 +10,29 @@ class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# Long enough to resist guessing, short enough that bcrypt's 72-byte limit
+# never silently truncates a longer one.
+PASSWORD_MIN = 8
+PASSWORD_MAX = 72
+
+
 # ---------- Auth ----------
 
 
 class AdminLogin(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=256)
+
+
+class MemberLogin(BaseModel):
+    """Sign in with a password, using either the phone number or the email."""
+
+    identifier: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=PASSWORD_MAX)
+
+
+class SetPasswordIn(BaseModel):
+    password: str = Field(min_length=PASSWORD_MIN, max_length=PASSWORD_MAX)
 
 
 class PhoneCodeRequest(BaseModel):
@@ -31,12 +48,16 @@ class PhoneCodeSent(BaseModel):
 
 
 class PhoneSignupIn(BaseModel):
-    """Phone-first signup: the number plus an email and name."""
+    """Phone-first signup: the number plus an email, name and password."""
 
     phone: str = Field(min_length=6, max_length=40)
     code: str = Field(min_length=4, max_length=8)
     email: EmailStr
     full_name: str = Field(default="", max_length=200)
+    # Lets them sign in later without waiting for another SMS.
+    password: str | None = Field(
+        default=None, min_length=PASSWORD_MIN, max_length=PASSWORD_MAX
+    )
     # Optional invite code, as on the Google path.
     ref: str | None = Field(default=None, max_length=16)
 
@@ -47,6 +68,9 @@ class AdminApprovalRequest(BaseModel):
     phone: str = Field(min_length=6, max_length=40)
     email: EmailStr
     full_name: str = Field(default="", max_length=200)
+    password: str | None = Field(
+        default=None, min_length=PASSWORD_MIN, max_length=PASSWORD_MAX
+    )
     ref: str | None = Field(default=None, max_length=16)
 
 
@@ -72,6 +96,7 @@ class UserOut(ORMModel):
     role: UserRole
     is_active: bool
     phone_verified: bool = False
+    has_password: bool = False
     coin_balance: int
     lifetime_coins_earned: int
     created_at: datetime
@@ -81,6 +106,7 @@ class UserOut(ORMModel):
     def from_user(cls, user) -> "UserOut":
         row = cls.model_validate(user)
         row.phone_verified = user.phone_verified_at is not None
+        row.has_password = bool(user.password_hash)
         return row
 
 

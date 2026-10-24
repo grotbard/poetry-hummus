@@ -20,6 +20,7 @@ export function PhoneVerify({
   const [code, setCode] = useState('')
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
+  const [password, setPassword] = useState('')
   const [devCode, setDevCode] = useState<string | null>(null)
   const [cooldown, setCooldown] = useState(0)
   const [error, setError] = useState('')
@@ -67,6 +68,7 @@ export function PhoneVerify({
               phone,
               email,
               full_name: name,
+              password: password || null,
               ref,
             })
           : await api.post<User>('/api/auth/phone/request-approval-self', { phone })
@@ -100,6 +102,7 @@ export function PhoneVerify({
               code,
               email,
               full_name: name,
+              password: password || null,
               ref,
             })
           : await api.post<User>('/api/auth/phone/verify', { phone, code })
@@ -113,8 +116,11 @@ export function PhoneVerify({
 
   if (step === 'phone') {
     const detailsNeeded = mode === 'signup'
+    const passwordOk = !detailsNeeded || password.length >= 8
     const ready =
-      phone.trim().length >= 9 && (!detailsNeeded || email.trim().includes('@'))
+      phone.trim().length >= 9 &&
+      (!detailsNeeded || email.trim().includes('@')) &&
+      passwordOk
     return (
       <div className="space-y-3">
         {detailsNeeded && (
@@ -146,6 +152,22 @@ export function PhoneVerify({
           autoComplete="tel"
           dir="ltr"
         />
+        {detailsNeeded && (
+          <>
+            <input
+              className="input"
+              type="password"
+              placeholder="סיסמה (8 תווים לפחות)"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+              dir="ltr"
+            />
+            <p className="-mt-1 text-xs text-ink/45">
+              עם הסיסמה תוכלו להיכנס בפעם הבאה בלי קוד אימות
+            </p>
+          </>
+        )}
         {error && <p className="text-sm text-red-600">{error}</p>}
         <button
           onClick={sendCode}

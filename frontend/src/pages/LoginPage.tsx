@@ -7,8 +7,12 @@ import { Chickpea } from '../components/Chickpea'
 import { Logo } from '../components/Logo'
 
 export function LoginPage() {
-  const { user, loading, googleEnabled, loginAdmin, refresh } = useAuth()
-  const [mode, setMode] = useState<'choose' | 'phone' | 'admin'>('choose')
+  const { user, loading, googleEnabled, loginAdmin, loginMember, refresh } =
+    useAuth()
+  const [mode, setMode] = useState<'choose' | 'phone' | 'password' | 'admin'>(
+    'choose',
+  )
+  const [identifier, setIdentifier] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -16,6 +20,19 @@ export function LoginPage() {
 
   if (loading) return null
   if (user) return <Navigate to={user.role === 'admin' ? '/admin' : '/'} replace />
+
+  async function submitMember(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    setBusy(true)
+    try {
+      await loginMember(identifier, password)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'ההתחברות נכשלה')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function submitAdmin(e: React.FormEvent) {
     e.preventDefault()
@@ -69,6 +86,45 @@ export function LoginPage() {
                 חזרה
               </button>
             </>
+          ) : mode === 'password' ? (
+            <form onSubmit={submitMember} className="space-y-3">
+              <h2 className="mb-1 text-center text-base text-wine">
+                כניסה עם סיסמה
+              </h2>
+              <input
+                className="input"
+                placeholder="מספר טלפון או אימייל"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                required
+                autoComplete="username"
+                dir="ltr"
+              />
+              <input
+                className="input"
+                type="password"
+                placeholder="סיסמה"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+                dir="ltr"
+              />
+              {error && <p className="text-sm text-red-600">{error}</p>}
+              <button className="btn-primary w-full" disabled={busy}>
+                {busy ? 'מתחבר…' : 'כניסה'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('choose')
+                  setError('')
+                }}
+                className="w-full text-sm text-ink/50 hover:text-ink"
+              >
+                חזרה
+              </button>
+            </form>
           ) : mode === 'admin' ? (
             <form onSubmit={submitAdmin} className="space-y-3">
               <input
@@ -125,7 +181,14 @@ export function LoginPage() {
           </div>
 
           <button onClick={() => setMode('phone')} className="btn-teal w-full !py-3">
-            כניסה עם מספר טלפון
+            הרשמה עם מספר טלפון
+          </button>
+
+          <button
+            onClick={() => setMode('password')}
+            className="btn-ghost mt-3 w-full !py-3"
+          >
+            כניסה עם סיסמה
           </button>
 
           <button

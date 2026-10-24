@@ -12,12 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..configuration import settings
 from ..db import get_db
 from ..models import CoinTxKind, User, UserRole
-from ..phone import normalise_phone_or_400
+from ..phone import InvalidPhoneNumber, normalise_phone, normalise_phone_or_400
 from ..phone_auth import phone_taken_by_other, request_code, verify_code
 from ..schemas import (
     AdminApprovalRequest,
     AdminLogin,
+    MemberLogin,
     SelfApprovalRequest,
+    SetPasswordIn,
     PhoneCodeRequest,
     PhoneCodeSent,
     PhoneSignupIn,
@@ -26,6 +28,7 @@ from ..schemas import (
 )
 from ..security import (
     clear_session_cookie,
+    hash_password,
     create_session_token,
     get_current_user,
     set_session_cookie,
@@ -317,6 +320,9 @@ async def phone_signup(
                 full_name=payload.full_name.strip(),
                 phone=phone,
                 role=UserRole.member,
+                password_hash=(
+                    hash_password(payload.password) if payload.password else None
+                ),
             )
             db.add(user)
             await db.flush()
@@ -337,6 +343,9 @@ async def phone_signup(
 
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "This account has been disabled")
+
+    if payload.password and not user.password_hash:
+        user.password_hash = hash_password(payload.password)
 
     user.phone_verified_at = datetime.now(timezone.utc)
     user.last_login_at = datetime.now(timezone.utc)
@@ -385,6 +394,9 @@ async def request_admin_approval(
             full_name=payload.full_name.strip(),
             phone=phone,
             role=UserRole.member,
+            password_hash=(
+                hash_password(payload.password) if payload.password else None
+            ),
         )
         db.add(user)
         await db.flush()
@@ -493,6 +505,83 @@ async def verify_my_phone(
         details={"via": "profile"},
         ip_address=request.client.host if request.client else None,
     )
+    await db.commit()
+    await db.refresh(user)
+    return UserOut.from_user(user)
+
+
+@router.post("/login", response_model=UserOut)
+async def member_login(
+    payload: MemberLogin,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> UserOut:
+    """Sign in with a password, by phone number or email.
+
+    Only available once the number is verified: before that the member has
+    not proved the phone is theirs, so a password alone must not let them in.
+    """
+    identifier = payload.identifier.strip()
+
+    # An "@" means it can only be an email; otherwise try to read a phone and
+    # fall back to treating it as an email, so a typo is not misread.
+    user: User | None = None
+    if "@" not in identifier:
+        try:
+            phone = normalise_phone(identifier)
+        except InvalidPhoneNumber:
+            phone = None
+        if phone:
+            user = (
+                await db.execute(select(User).where(User.phone == phone))
+            ).scalar_one_or_none()
+    if user is None:
+        user = (
+            await db.execute(select(User).where(User.email == identifier.lower()))
+        ).scalar_one_or_none()
+
+    if (
+        user is None
+        or not user.password_hash
+        or not verify_password(payload.password, user.password_hash)
+    ):
+        # Deliberately vague: this must not reveal which accounts exist.
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "מספר/אימייל או סיסמה שגויים"
+        )
+    if not user.is_active:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This account has been disabled")
+    if user.phone_verified_at is None:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "המספר עדיין לא אומת — השלימו את האימות או בקשו אישור מנהל",
+        )
+
+    user.last_login_at = datetime.now(timezone.utc)
+    await log_activity(
+        db,
+        "user.login",
+        user_id=user.id,
+        details={"via": "password"},
+        ip_address=request.client.host if request.client else None,
+    )
+    await db.commit()
+    await db.refresh(user)
+
+    set_session_cookie(response, create_session_token(user))
+    return UserOut.from_user(user)
+
+
+@router.post("/password", response_model=UserOut)
+async def set_my_password(
+    payload: SetPasswordIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserOut:
+    """Set or replace the signed-in member's password."""
+    user.password_hash = hash_password(payload.password)
+    await log_activity(db, "user.password_set", user_id=user.id, details={})
     await db.commit()
     await db.refresh(user)
     return UserOut.from_user(user)
