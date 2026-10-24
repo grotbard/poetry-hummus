@@ -16,6 +16,7 @@ export function MemberDrawer({ userId, onClose }: { userId: number; onClose: () 
   const queryClient = useQueryClient()
   const [amount, setAmount] = useState('')
   const [reason, setReason] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'user', userId],
@@ -42,6 +43,14 @@ export function MemberDrawer({ userId, onClose }: { userId: number; onClose: () 
   const toggle = useMutation({
     mutationFn: () => api.post(`/api/admin/users/${userId}/toggle-active`),
     onSuccess: invalidate,
+  })
+
+  const remove = useMutation({
+    mutationFn: () => api.del<void>(`/api/admin/users/${userId}`),
+    onSuccess: async () => {
+      await invalidate()
+      onClose()
+    },
   })
 
   const user = data?.user
@@ -120,6 +129,51 @@ export function MemberDrawer({ userId, onClose }: { userId: number; onClose: () 
               </button>
               {toggle.isError && (
                 <p className="mt-2 text-sm text-red-600">{(toggle.error as Error).message}</p>
+              )}
+
+              {/* Only offered when nothing would be lost; an account with
+                  orders is blocked rather than deleted, so its sales history
+                  survives. The server enforces this too. */}
+              {data.orders.length === 0 ? (
+                confirmDelete ? (
+                  <div className="mt-3 rounded-2xl bg-red-50 p-3">
+                    <p className="text-sm text-red-800">
+                      למחוק לצמיתות את {user.full_name || user.email}? הפעולה
+                      אינה הפיכה.
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        onClick={() => remove.mutate()}
+                        disabled={remove.isPending}
+                        className="btn flex-1 bg-red-600 text-white hover:bg-red-700 !py-1.5 !text-sm"
+                      >
+                        {remove.isPending ? 'מוחק…' : 'כן, למחוק'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDelete(false)}
+                        className="btn-ghost flex-1 !py-1.5 !text-sm"
+                      >
+                        ביטול
+                      </button>
+                    </div>
+                    {remove.isError && (
+                      <p className="mt-2 text-sm text-red-700">
+                        {(remove.error as Error).message}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDelete(true)}
+                    className="mt-2 w-full text-sm text-red-600 hover:underline"
+                  >
+                    מחיקת החשבון
+                  </button>
+                )
+              ) : (
+                <p className="mt-2 text-center text-xs text-ink/40">
+                  לחשבון יש {data.orders.length} הזמנות — אפשר לחסום אותו, לא למחוק
+                </p>
               )}
             </section>
 
