@@ -154,6 +154,21 @@ export function PhoneVerify({
         >
           {busy ? 'שולח…' : 'שליחת קוד אימות'}
         </button>
+
+        {/* Offered here too, not only after a code fails to arrive: the
+            member may already know SMS will not reach them. */}
+        <div className="border-t border-ink/10 pt-3">
+          <button
+            onClick={askAdmin}
+            disabled={!ready || busy || requested}
+            className="btn-ghost w-full !py-2 text-sm"
+          >
+            {requested ? 'הבקשה נשלחה ✓' : 'בקשת אישור מנהל'}
+          </button>
+          <p className="mt-1.5 text-center text-xs text-ink/45">
+            מנהל יאשר את המספר ידנית
+          </p>
+        </div>
       </div>
     )
   }
